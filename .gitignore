@@ -1,0 +1,10 @@
+dist/
+node_modules/
+*.ndp
+*.wasm
+*.log
+.env
+*.db
+*.sqlite
+*.sqlite3
+.env.*

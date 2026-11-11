@@ -1,0 +1,383 @@
+{
+  "name": "Automatic Ratings",
+  "author": "Automatic Ratings contributors",
+  "version": "0.1.0",
+  "description": "Generate per-user album and artist ratings independently from user-rated songs.",
+  "website": "https://github.com/JLS1996/navidrome-automatic-rating-plugin",
+  "permissions": {
+    "subsonicapi": {
+      "reason": "Read song ratings and update only album and artist ratings for assigned users."
+    },
+    "users": {
+      "reason": "Calculate ratings separately for assigned users."
+    },
+    "library": {
+      "reason": "Restrict scans to explicitly granted libraries, intersected with each user's access.",
+      "filesystem": false
+    },
+    "scheduler": {
+      "reason": "Run daily and serialize bounded continuation callbacks."
+    },
+    "kvstore": {
+      "reason": "Persist source snapshots, checkpoints, summaries, and rating ownership with write intents.",
+      "maxSize": "64MB"
+    }
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rate_albums": {
+          "type": "boolean",
+          "title": "Generate album ratings",
+          "default": true
+        },
+        "rate_artists": {
+          "type": "boolean",
+          "title": "Generate artist ratings directly from songs",
+          "default": true
+        },
+        "artist_attribution": {
+          "type": "string",
+          "title": "Artist attribution",
+          "default": "album_artist",
+          "enum": [
+            "album_artist",
+            "performing_artist"
+          ],
+          "description": "Album artist uses all structured album-artist credits. Performing artist uses structured song-artist credits; names are never split."
+        },
+        "album_rating_policy": {
+          "type": "string",
+          "title": "Album rating policy",
+          "default": "preserve",
+          "enum": [
+            "preserve",
+            "replace"
+          ],
+          "description": "Preserve protects existing unmanaged ratings and detected manual edits, while refreshing this plugin's output. Replace explicitly permits overwriting existing ratings and adopting matching results. No initial wipe is performed."
+        },
+        "artist_rating_policy": {
+          "type": "string",
+          "title": "Artist rating policy",
+          "default": "preserve",
+          "enum": [
+            "preserve",
+            "replace"
+          ],
+          "description": "Preserve protects existing unmanaged ratings and detected manual edits, while refreshing this plugin's output. Replace explicitly permits overwriting existing ratings and adopting matching results. No initial wipe is performed."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "title": "Preview without changing ratings",
+          "default": true,
+          "description": "Preview both independent outputs. Ownership records are not changed in dry runs."
+        },
+        "album_clear_below_threshold": {
+          "type": "boolean",
+          "title": "Clear album ratings below quota",
+          "default": true,
+          "description": "Clear eligible ratings only after validating the complete source. Preserve policy protects unmanaged/manual ratings. Artists require a complete, rechecked source scan. Empty sources never trigger clearing."
+        },
+        "album_minimum_rated_percent": {
+          "type": "integer",
+          "title": "Album: minimum percentage of rated songs",
+          "default": 30,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Unrated songs count toward coverage but stay out of the mean. The percentage quota is rounded up."
+        },
+        "album_minimum_rated_songs": {
+          "type": "integer",
+          "title": "Album: minimum number of rated songs",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1000000,
+          "description": "Both the percentage and count quota must be met."
+        },
+        "album_one_star_weight": {
+          "type": "number",
+          "title": "Album: 1-star song weight",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 10
+        },
+        "album_two_star_weight": {
+          "type": "number",
+          "title": "Album: 2-star song weight",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 10
+        },
+        "album_three_star_weight": {
+          "type": "number",
+          "title": "Album: 3-star song weight",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10
+        },
+        "album_four_star_weight": {
+          "type": "number",
+          "title": "Album: 4-star song weight",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 10
+        },
+        "album_five_star_weight": {
+          "type": "number",
+          "title": "Album: 5-star song weight",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 10
+        },
+        "artist_clear_below_threshold": {
+          "type": "boolean",
+          "title": "Clear artist ratings below quota",
+          "default": true,
+          "description": "Clear eligible ratings only after validating the complete source. Preserve policy protects unmanaged/manual ratings. Artists require a complete, rechecked source scan. Empty sources never trigger clearing."
+        },
+        "artist_minimum_rated_percent": {
+          "type": "integer",
+          "title": "Artist: minimum percentage of rated songs",
+          "default": 30,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Unrated songs count toward coverage but stay out of the mean. The percentage quota is rounded up."
+        },
+        "artist_minimum_rated_songs": {
+          "type": "integer",
+          "title": "Artist: minimum number of rated songs",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1000000,
+          "description": "Both the percentage and count quota must be met."
+        },
+        "artist_one_star_weight": {
+          "type": "number",
+          "title": "Artist: 1-star song weight",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 10
+        },
+        "artist_two_star_weight": {
+          "type": "number",
+          "title": "Artist: 2-star song weight",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 10
+        },
+        "artist_three_star_weight": {
+          "type": "number",
+          "title": "Artist: 3-star song weight",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10
+        },
+        "artist_four_star_weight": {
+          "type": "number",
+          "title": "Artist: 4-star song weight",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 10
+        },
+        "artist_five_star_weight": {
+          "type": "number",
+          "title": "Artist: 5-star song weight",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 10
+        },
+        "run_time_utc": {
+          "type": "string",
+          "title": "Daily start time (UTC)",
+          "default": "03:00",
+          "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+          "description": "Live callbacks can reschedule this time. Some Navidrome versions unload a plugin after configuration edits without reinitializing it; restart the server/container after edits if callbacks stop."
+        },
+        "run_now": {
+          "type": "boolean",
+          "title": "Request a scan now",
+          "default": false,
+          "description": "Starts once on the next worker tick. Leaving true does not repeat scans, including after restart. To rearm, save false, let a worker tick observe it, then save true. Restart after edits on Navidrome versions that unload plugins without reinitializing."
+        },
+        "batch_size": {
+          "type": "integer",
+          "title": "Work units per checkpoint",
+          "default": 25,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Inventory pages, album reads, source checks, and artist evaluations are checkpointed in bounded batches; batches chain within a shared 20-second callback budget."
+        },
+        "batch_interval_seconds": {
+          "type": "integer",
+          "title": "Seconds between continuation ticks",
+          "default": 10,
+          "minimum": 5,
+          "maximum": 300,
+          "description": "Delay before continuing unfinished work or checking manual requests. There is no interval sleep between chained batches."
+        },
+        "detail_logging": {
+          "type": "string",
+          "title": "Per-item audit logging",
+          "default": "debug",
+          "enum": [
+            "debug",
+            "info",
+            "off"
+          ],
+          "description": "Info summaries are always emitted. Choose info to see every item without enabling server debug logging; this can be verbose. Errors remain visible even when item logging is off."
+        }
+      }
+    },
+    "uiSchema": {
+      "type": "Categorization",
+      "elements": [
+        {
+          "type": "Category",
+          "label": "Outputs and safety",
+          "elements": [
+            {
+              "type": "Control",
+              "scope": "#/properties/rate_albums"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/rate_artists"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/artist_attribution"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/album_rating_policy"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/artist_rating_policy"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/dry_run"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/album_clear_below_threshold"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/artist_clear_below_threshold"
+            }
+          ]
+        },
+        {
+          "type": "Category",
+          "label": "Album calculation",
+          "elements": [
+            {
+              "type": "Control",
+              "scope": "#/properties/album_minimum_rated_percent"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/album_minimum_rated_songs"
+            },
+            {
+              "type": "Group",
+              "label": "Song rating weights",
+              "elements": [
+                {
+                  "type": "Control",
+                  "scope": "#/properties/album_one_star_weight"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/album_two_star_weight"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/album_three_star_weight"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/album_four_star_weight"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/album_five_star_weight"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Category",
+          "label": "Artist calculation",
+          "elements": [
+            {
+              "type": "Control",
+              "scope": "#/properties/artist_minimum_rated_percent"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/artist_minimum_rated_songs"
+            },
+            {
+              "type": "Group",
+              "label": "Song rating weights",
+              "elements": [
+                {
+                  "type": "Control",
+                  "scope": "#/properties/artist_one_star_weight"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/artist_two_star_weight"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/artist_three_star_weight"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/artist_four_star_weight"
+                },
+                {
+                  "type": "Control",
+                  "scope": "#/properties/artist_five_star_weight"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Category",
+          "label": "Schedule and logging",
+          "elements": [
+            {
+              "type": "Control",
+              "scope": "#/properties/run_time_utc"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/run_now"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/batch_size"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/batch_interval_seconds"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/detail_logging"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

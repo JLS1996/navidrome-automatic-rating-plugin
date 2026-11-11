@@ -1,0 +1,110 @@
+name: Test and build Navidrome plugin
+
+"on":
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Verify release tag matches plugin version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          expected="v$(node -p 'require("./manifest.json").version')"
+          test "$GITHUB_REF_NAME" = "$expected" || {
+            echo "::error::Tag $GITHUB_REF_NAME does not match manifest $expected"
+            exit 1
+          }
+      - name: Install test dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run tests
+        run: npm test
+      - name: Install Binaryen v125 (includes wasm-merge)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 \
+            -o /tmp/binaryen.tar.gz \
+            https://github.com/WebAssembly/binaryen/releases/download/version_125/binaryen-version_125-x86_64-linux.tar.gz
+          echo '7c3bc16599c8274a04d34a504fe4be2047884f900e0e2da2f6fb9cd667183be4  /tmp/binaryen.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/binaryen.tar.gz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_125/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/binaryen-version_125/bin/wasm-merge" --version
+          "$RUNNER_TEMP/binaryen-version_125/bin/wasm-opt" --version
+          command -v zip
+      - name: Install Extism JS compiler (pinned release)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 \
+            -o /tmp/extism-js.gz \
+            https://github.com/extism/js-pdk/releases/download/v1.7.0/extism-js-x86_64-linux-v1.7.0.gz
+          echo '63b72da2f5e88655522dc21477de549f238a2f40546a69ce4e0fce7e78654035  /tmp/extism-js.gz' | sha256sum -c -
+          gzip -dc /tmp/extism-js.gz > /tmp/extism-js
+          chmod +x /tmp/extism-js
+          sudo mv /tmp/extism-js /usr/local/bin/extism-js
+          extism-js --version
+      - name: Build NDP package
+        run: |
+          npm run build
+          test -s dist/automatic-ratings.ndp
+          unzip -t dist/automatic-ratings.ndp
+          test "$(unzip -Z -1 dist/automatic-ratings.ndp | LC_ALL=C sort)" = "$(printf 'LICENSE\nmanifest.json\nplugin.wasm\n' | LC_ALL=C sort)"
+          unzip -l dist/automatic-ratings.ndp
+          cd dist
+          sha256sum automatic-ratings.ndp > automatic-ratings.ndp.sha256
+      - name: Smoke-test compiled WASM with simulated host functions
+        run: npm run test:wasm
+      - name: Upload build artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: automatic-ratings-ndp
+          path: |
+            dist/automatic-ratings.ndp
+            dist/automatic-ratings.ndp.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source for release notes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Download validated build artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: automatic-ratings-ndp
+          path: release
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          body_path: RELEASE_NOTES.md
+          prerelease: true
+          files: |
+            release/automatic-ratings.ndp
+            release/automatic-ratings.ndp.sha256
