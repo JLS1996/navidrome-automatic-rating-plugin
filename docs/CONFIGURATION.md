@@ -27,16 +27,16 @@ Artist ratings belong globally to a user and artist; library grants select their
 
 ## Set the coverage requirement
 
-An item qualifies only when **both** its percentage and minimum-count requirements are met. Unrated songs count toward coverage but stay out of the average.
+An item qualifies only when **both** its percentage and minimum-count requirements are met. Unrated songs count toward coverage but stay out of the average. Rated songs with zero weight are excluded from both requirements.
 
 | Setting | Default | Effect |
 |---|---|---|
-| `album_minimum_rated_percent` | `30` | Percentage of an album's songs that must be rated, from 0 to 100. |
-| `artist_minimum_rated_percent` | `30` | Percentage of an artist's attributed songs that must be rated, from 0 to 100. |
-| `album_minimum_rated_songs` | `1` | Minimum rated-song count for an album, from 1 to 1,000,000. |
-| `artist_minimum_rated_songs` | `1` | Minimum rated-song count for an artist, from 1 to 1,000,000. |
+| `album_minimum_rated_percent` | `30` | Percentage of an album's eligible songs that must have a contributing rating, from 0 to 100. |
+| `artist_minimum_rated_percent` | `30` | Percentage of an artist's eligible attributed songs that must have a contributing rating, from 0 to 100. |
+| `album_minimum_rated_songs` | `1` | Minimum contributing rated songs for an album, from 1 to 1,000,000. |
+| `artist_minimum_rated_songs` | `1` | Minimum contributing rated songs for an artist, from 1 to 1,000,000. |
 
-The required count is `max(minimum count, ceil(total songs × percentage / 100))`. A ten-song album at 30% needs three rated songs, or five if you raise its minimum to five. A percentage of 0 still requires the minimum count; a minimum above the total prevents qualification.
+The required count is `max(minimum count, ceil(eligible songs × percentage / 100))`. Eligible songs are all songs except rated songs with zero weight; contributing ratings have positive weight. With default weights, a ten-song album at 30% needs three rated songs, or five if you raise its minimum to five. A percentage of 0 still requires the minimum count.
 
 For example, these changes generate only artist ratings, include credited guest performers, and require at least half the songs and at least five rated songs:
 
@@ -54,14 +54,14 @@ Examples show only the settings to change. Keep the other settings at your chose
 
 ## Choose how much each star rating counts
 
-You can give songs with a particular rating more influence on the result. Weights are separate for albums and artists; each accepts a number from **1 to 10**, including decimals.
+You can give songs with a particular rating more influence on the result. Weights are separate for albums and artists; each accepts a number from **0 to 10**, including decimals. Zero weights require **v0.3.0 or newer**.
 
 | Settings | Defaults for 1★ through 5★ |
 |---|---|
 | `album_one_star_weight` … `album_five_star_weight` | `1, 2, 3, 4, 5` |
 | `artist_one_star_weight` … `artist_five_star_weight` | `1, 2, 3, 4, 5` |
 
-The defaults give higher-rated songs more influence. Set all five weights to the same value for a plain average. For example, to use a plain average for albums:
+The defaults give higher-rated songs more influence. Set all five weights to the same positive value for a plain average. For example, to use a plain average for albums:
 
 ```json
 {
@@ -75,7 +75,24 @@ The defaults give higher-rated songs more influence. Set all five weights to the
 
 Use the corresponding `artist_` settings for artists.
 
-The score is `sum(song stars × weight for those stars) / sum(weights)`, using rated songs only. It rounds to the nearest star, with exact ties rounding up: **2.5 → 3**. One 5-star song and four 1-star songs give **3 stars** with default weights (`29/9`), or **2 stars** with equal weights (`9/5`). Longer albums contribute more songs.
+The score is `sum(song stars × weight for those stars) / sum(weights)`, using contributing rated songs only. It rounds to the nearest star, with exact ties rounding up: **2.5 → 3**. One 5-star song and four 1-star songs give **3 stars** with default weights (`29/9`), or **2 stars** with equal weights (`9/5`). Longer albums contribute more songs.
+
+### Exclude a star level
+
+Set a weight to **0** to exclude that star level from scoring and coverage. For example, exclude 1-star songs from both outputs:
+
+```json
+{
+  "album_one_star_weight": 0,
+  "artist_one_star_weight": 0
+}
+```
+
+Change either setting independently. At least one of each output's five weights must stay positive, even when that output is disabled. A positive decimal such as `0.1` reduces influence while retaining those songs in coverage.
+
+With 1-star songs excluded, one 5-star song and four 1-star songs produce **5 stars**: one contributing rating out of one eligible song. To require more evidence, raise `*_minimum_rated_songs`. Unrated songs still count toward coverage: seven excluded 1-star songs, two 5-star songs, and three unrated songs need two contributing ratings at 30% (`ceil(5 × 0.30)`).
+
+If every rated song is excluded, the item keeps its existing rating, including under replace with clearing enabled. An item whose songs are genuinely all unrated still follows the clearing policy. Song ratings themselves stay unchanged.
 
 ## Decide what happens to existing ratings
 
@@ -89,7 +106,7 @@ The score is `sum(song stars × weight for those stars) / sum(weights)`, using r
 
 **Replace** permits overwriting manual ratings and values from other plugins. With `dry_run=false`, matching calculated values are adopted without a rating write; eligible differences are overwritten. Later replace runs can overwrite manual edits too. Each change is validated before writing.
 
-When clearing is enabled, an eligible item that no longer meets coverage is reset to **0 (unrated)**. Set the relevant `*_clear_below_threshold=false` to retain that value instead. Preserve still protects unmanaged/manual ratings. Empty or incomplete sources never trigger a clear.
+When clearing is enabled, an eligible item that no longer meets coverage is reset to **0 (unrated)**. Set the relevant `*_clear_below_threshold=false` to retain that value instead. Preserve still protects unmanaged/manual ratings. Empty, incomplete, or entirely excluded rated sources never trigger a clear; a partially contributing source below coverage can still clear.
 
 For a first run after another ratings plugin, see [migration and ownership](OPERATIONS.md#migrating-from-another-ratings-plugin).
 

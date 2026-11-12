@@ -13,7 +13,7 @@ Requires **Navidrome 0.64.2 or newer** with native plugins enabled:
 Enabled = true
 ```
 
-1. Download the ready-to-install **[plugin package (.ndp)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp)** and [checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256` in the download directory. No source build is needed.
+1. Download the ready-to-install **[v0.3.0 plugin package (.ndp)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.0/automatic-ratings.ndp)** and [checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.0/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256` in the download directory. No source build is needed.
 2. Back up the Navidrome database and plugin storage. Copy the package into the plugins directory and rescan plugins, using `navidrome plugin rescan` where supported.
 3. Grant the plugin the intended **users and libraries**, then enable **Automatic Ratings**. Each user's inputs are limited to libraries allowed by both the plugin grant and their own access. Empty grants do not mean unrestricted access.
 4. Open the plugin settings. Keep `dry_run=true`, choose the [configuration settings](CONFIGURATION.md), and set `run_now=true`. Save and restart Navidrome where required. Review `user_summary` and `run_summary`; temporarily choose `detail_logging=info` to inspect individual decisions.
@@ -26,6 +26,8 @@ Installation uses only the `.ndp` package. Node.js and Python are not required o
 ## Validation status
 
 **[v0.2.0](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/tag/v0.2.0) is the first regular release.** Production use on Navidrome 0.64.2 has verified album/artist writes, configured coverage thresholds, and adoption of matching existing ratings, with song ratings untouched. Automated tests also cover clears, manual overrides, recovery, performing-artist attribution, and repeat runs without rating or timestamp changes.
+
+**v0.3.0 adds optional zero weights.** Compiled tests and the isolated Navidrome fixture cover independent exclusions, retaining existing ratings when every rated song is excluded, and clearing genuinely unrated outputs. Existing configurations keep their defaults. Keep plugin storage during upgrades, preview weight changes, and request a fresh run after applying them.
 
 ## Migrating from another ratings plugin
 
@@ -55,6 +57,8 @@ In a dry run, `updated` counts proposed changes; with writes enabled, it counts 
 
 Ratings reflect their **source read time**, not one frozen database state at run completion. An active library scan or incomplete/changing source can defer updates; review failures and request a new run after the source is stable. Include the full intended library scope when comparing artist totals.
 
+When [zero weights](CONFIGURATION.md#exclude-a-star-level) are configured, item logs show `excludedSongs`, `eligibleSongs`, and `contributingRatedSongs` alongside the original source counts. `skip_excluded` means every rated song was excluded: the existing rating is retained and the item counts as `empty`, with no quota failure. Genuinely unrated items still follow the clearing policy; partially contributing items must still meet coverage.
+
 ### Check a repeat run
 
 After a successful live run, request another with the same song/target ratings, catalogue, settings, and plugin storage. Expect `updated=0`, `adopted=0`, and all-zero `ratingCounts`; database ratings and `rated_at` timestamps should stay unchanged. Matching owned items count as `unchanged`; preserved and below-quota outcomes can remain. Rearm `run_now` as described [above](#schedule-and-manual-runs).
@@ -71,6 +75,6 @@ python3 scripts/verify-audit.py /path/to/local-audit.log
 python3 scripts/verify-audit.py /path/to/local-audit.log --explain-artist ARTIST_ID --user USERNAME
 ```
 
-The standard-library verifier checks the whole run using exact fractions. Missing evidence or a mismatch fails with a nonzero exit code. Artist explanations list per-album song IDs, credits, histograms, quotas, and scores; omit `--user` to explain all matching users. Checks use captured read-time data, not later database contents or ownership provenance.
+The standard-library verifier checks the whole run using exact fractions, including zero-weight exclusions. Missing evidence or a mismatch fails with a nonzero exit code. Artist explanations list per-album song IDs, credits, raw histograms, filtered coverage counts, quotas, and scores; omit `--user` to explain all matching users. Excluded songs remain visible in the evidence. Checks use captured read-time data, not later database contents or ownership provenance.
 
 Audit logs contain private user identifiers, song IDs, and credit relationships. Keep them local and turn audit logging off afterward, restarting Navidrome where required.

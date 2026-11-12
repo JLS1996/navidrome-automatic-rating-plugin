@@ -1,7 +1,7 @@
 {
   "name": "Automatic Ratings",
   "author": "Automatic Ratings contributors",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Generate per-user album and artist ratings independently from user-rated songs.",
   "website": "https://github.com/JLS1996/navidrome-automatic-rating-plugin",
   "permissions": {
@@ -90,7 +90,7 @@
           "type": "boolean",
           "title": "Clear album ratings below quota",
           "default": true,
-          "description": "Clear eligible ratings only after validating the complete source. Preserve policy protects unmanaged/manual ratings. Artists require a complete, rechecked source scan. Empty sources never trigger clearing."
+          "description": "Clear eligible ratings only after validating the complete source. Preserve policy protects unmanaged/manual ratings. Artists require a complete, rechecked source scan. Empty sources never trigger clearing. Items whose rated songs are all excluded keep their current rating."
         },
         "album_minimum_rated_percent": {
           "type": "integer",
@@ -98,7 +98,7 @@
           "default": 30,
           "minimum": 0,
           "maximum": 100,
-          "description": "Unrated songs count toward coverage but stay out of the mean. The percentage quota is rounded up."
+          "description": "Unrated songs count toward coverage but stay out of the mean. Songs with zero weight are excluded from the coverage denominator. The percentage quota is rounded up."
         },
         "album_minimum_rated_songs": {
           "type": "integer",
@@ -106,48 +106,53 @@
           "default": 1,
           "minimum": 1,
           "maximum": 1000000,
-          "description": "Both the percentage and count quota must be met."
+          "description": "Minimum rated songs with positive weight. Both the percentage and count quota must be met."
         },
         "album_one_star_weight": {
           "type": "number",
           "title": "Album: 1-star song weight",
           "default": 1,
-          "minimum": 1,
-          "maximum": 10
+          "minimum": 0,
+          "maximum": 10,
+          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
         },
         "album_two_star_weight": {
           "type": "number",
           "title": "Album: 2-star song weight",
           "default": 2,
-          "minimum": 1,
-          "maximum": 10
+          "minimum": 0,
+          "maximum": 10,
+          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
         },
         "album_three_star_weight": {
           "type": "number",
           "title": "Album: 3-star song weight",
           "default": 3,
-          "minimum": 1,
-          "maximum": 10
+          "minimum": 0,
+          "maximum": 10,
+          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
         },
         "album_four_star_weight": {
           "type": "number",
           "title": "Album: 4-star song weight",
           "default": 4,
-          "minimum": 1,
-          "maximum": 10
+          "minimum": 0,
+          "maximum": 10,
+          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
         },
         "album_five_star_weight": {
           "type": "number",
           "title": "Album: 5-star song weight",
           "default": 5,
-          "minimum": 1,
-          "maximum": 10
+          "minimum": 0,
+          "maximum": 10,
+          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
         },
         "artist_clear_below_threshold": {
           "type": "boolean",
           "title": "Clear artist ratings below quota",
           "default": true,
-          "description": "Clear eligible ratings only after validating the complete source. Preserve policy protects unmanaged/manual ratings. Artists require a complete, rechecked source scan. Empty sources never trigger clearing."
+          "description": "Clear eligible ratings only after validating the complete source. Preserve policy protects unmanaged/manual ratings. Artists require a complete, rechecked source scan. Empty sources never trigger clearing. Items whose rated songs are all excluded keep their current rating."
         },
         "artist_minimum_rated_percent": {
           "type": "integer",
@@ -155,7 +160,7 @@
           "default": 30,
           "minimum": 0,
           "maximum": 100,
-          "description": "Unrated songs count toward coverage but stay out of the mean. The percentage quota is rounded up."
+          "description": "Unrated songs count toward coverage but stay out of the mean. Songs with zero weight are excluded from the coverage denominator. The percentage quota is rounded up."
         },
         "artist_minimum_rated_songs": {
           "type": "integer",
@@ -163,42 +168,47 @@
           "default": 1,
           "minimum": 1,
           "maximum": 1000000,
-          "description": "Both the percentage and count quota must be met."
+          "description": "Minimum rated songs with positive weight. Both the percentage and count quota must be met."
         },
         "artist_one_star_weight": {
           "type": "number",
           "title": "Artist: 1-star song weight",
           "default": 1,
-          "minimum": 1,
-          "maximum": 10
+          "minimum": 0,
+          "maximum": 10,
+          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
         },
         "artist_two_star_weight": {
           "type": "number",
           "title": "Artist: 2-star song weight",
           "default": 2,
-          "minimum": 1,
-          "maximum": 10
+          "minimum": 0,
+          "maximum": 10,
+          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
         },
         "artist_three_star_weight": {
           "type": "number",
           "title": "Artist: 3-star song weight",
           "default": 3,
-          "minimum": 1,
-          "maximum": 10
+          "minimum": 0,
+          "maximum": 10,
+          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
         },
         "artist_four_star_weight": {
           "type": "number",
           "title": "Artist: 4-star song weight",
           "default": 4,
-          "minimum": 1,
-          "maximum": 10
+          "minimum": 0,
+          "maximum": 10,
+          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
         },
         "artist_five_star_weight": {
           "type": "number",
           "title": "Artist: 5-star song weight",
           "default": 5,
-          "minimum": 1,
-          "maximum": 10
+          "minimum": 0,
+          "maximum": 10,
+          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
         },
         "run_time_utc": {
           "type": "string",
@@ -240,7 +250,87 @@
           ],
           "description": "Info summaries are always emitted. Choose info to see every item without enabling server debug logging; this can be verbose. Errors remain visible even when item logging is off."
         }
-      }
+      },
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "properties": {
+                "album_one_star_weight": {
+                  "exclusiveMinimum": 0
+                }
+              }
+            },
+            {
+              "properties": {
+                "album_two_star_weight": {
+                  "exclusiveMinimum": 0
+                }
+              }
+            },
+            {
+              "properties": {
+                "album_three_star_weight": {
+                  "exclusiveMinimum": 0
+                }
+              }
+            },
+            {
+              "properties": {
+                "album_four_star_weight": {
+                  "exclusiveMinimum": 0
+                }
+              }
+            },
+            {
+              "properties": {
+                "album_five_star_weight": {
+                  "exclusiveMinimum": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "anyOf": [
+            {
+              "properties": {
+                "artist_one_star_weight": {
+                  "exclusiveMinimum": 0
+                }
+              }
+            },
+            {
+              "properties": {
+                "artist_two_star_weight": {
+                  "exclusiveMinimum": 0
+                }
+              }
+            },
+            {
+              "properties": {
+                "artist_three_star_weight": {
+                  "exclusiveMinimum": 0
+                }
+              }
+            },
+            {
+              "properties": {
+                "artist_four_star_weight": {
+                  "exclusiveMinimum": 0
+                }
+              }
+            },
+            {
+              "properties": {
+                "artist_five_star_weight": {
+                  "exclusiveMinimum": 0
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     "uiSchema": {
       "type": "Categorization",

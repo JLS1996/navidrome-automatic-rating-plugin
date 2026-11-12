@@ -1,24 +1,30 @@
-# Automatic Ratings v0.2.0 — first regular release
+# Automatic Ratings v0.3.0 — optional star exclusions
 
-Download the ready-to-install [automatic-ratings.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp) and [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256`, replace the package in Navidrome's plugins directory, and restart. No source build, Node.js, or Python is needed to install it.
+Download the ready-to-install [automatic-ratings.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.0/automatic-ratings.ndp) and [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.0/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256`. No source build is needed.
 
-Generate per-user album and artist ratings directly from songs, with independent coverage thresholds, weights, preserve/replace policies, and optional clearing. Dry run remains the default. Structured album-artist and performing-artist modes, safe unrated-user skips, resumable checkpoints, ownership/manual-override handling, and independent local audits are included.
+## Exclude 1-star songs with the existing weight controls
 
-## Fixes and validation
+Weights now accept **0 to 10**, independently for albums and artists. To exclude 1-star songs from both outputs, set:
 
-- Recheck settings, user/library access, and scan status after persisting a write intent, immediately before the rating API call. Changes during storage now defer that write, retaining its intent for recovery.
-- Keep failed and blocked item events visible at error level even with detailed logging off. Artist-only source failures use a source-error event rather than an uncounted album evaluation.
-- Test lost ownership finalization, final write guards for both outputs, and refusal to explain failed/blocked audit evaluations.
-- Add an automated integration test using the installed package on a real, isolated Navidrome 0.64.2 server with fictional music and users. It exercises audit dry runs, writes, convergence, recovery from a seeded pending intent, manual edits including zero, replace, clears, performing attribution, and song/file isolation. CI checks this before publication alongside unit tests, WASM smoke tests, native scaling/write checks, package contents, and checksum verification.
-- Explain audit mode's operating cost: it fully scans every user, bypasses the unrated-user precheck (`preflightSongs:0`), and can substantially increase runtime and private log volume. Keep it off for normal daily runs.
+```json
+{
+  "album_one_star_weight": 0,
+  "artist_one_star_weight": 0
+}
+```
 
-Calculations, defaults, item fields, ownership keys, and the v0.1.2/0.1.3 checkpoint format remain compatible. Existing dry-run calculations have been independently verified on a real library; the new write integration uses a controlled temporary installation, not a production library.
+Change either setting independently; any star level can be excluded. Defaults stay **1, 2, 3, 4, 5**, so existing configurations behave as before. A positive decimal such as `0.1` softens a tier's influence without excluding it. At least one tier per output must stay positive.
 
-## Apply ratings in your library
+Excluded songs leave both scoring and the coverage pool. Unrated songs remain in coverage, and the minimum rated-song count applies to contributing songs. If every rated song is excluded, the item retains its existing rating, even under replace with clearing enabled. Genuinely unrated sources still follow clearing policy. Song ratings and music files stay unchanged.
 
-1. Back up the Navidrome database and plugin storage; disable older rating plugins. Install the package and restart.
-2. Keep the policies and thresholds you previewed. Set `dry_run=false`, `audit_logging=false`, and `detail_logging=debug` for normal operation.
-3. Request a fresh run. If `run_now` is already true, first apply false and let one worker tick observe it, then apply true. On Navidrome 0.64.2, restart after each settings/grant edit and confirm an `enabled` event.
-4. Check `user_summary` and `run_summary`: updated counts now represent verified writes. Preserve leaves existing ratings from older plugins protected; preview replace for the selected output before using it to adopt or regenerate those values.
+## Diagnostics and validation
 
-Keep the package filename/ID and plugin storage during upgrades so ownership evidence survives. Partial checkpoints from 0.1.0/0.1.1 still require a fresh run. Audit logs and explanations contain private library metadata and should stay local.
+- Item logs and independent artist explanations include `excludedSongs`, `eligibleSongs`, and `contributingRatedSongs`. Raw source counts and audit evidence remain available.
+- Small positive decimal weights, including scientific notation, retain exact half-up rounding and finite logged scores.
+- Release checks cover 111 source tests, compiled WASM smoke tests, independent audit verification, native scaling/write checks, package integrity, and an isolated Navidrome 0.64.2 fixture with fictional users and music. The fixture exercises independent exclusions, retention when all rated songs are excluded, ordinary clears, migration, repeat runs, recovery, and song/file isolation.
+
+## Upgrade
+
+Back up the Navidrome database and plugin storage, replace the `.ndp` package, and restart Navidrome. Keep the package filename/ID and plugin storage so ownership evidence survives. Preview weight changes with `dry_run=true`, then request a fresh run. On Navidrome 0.64.2, restart after settings/grant edits too.
+
+See the [configuration guide](https://github.com/JLS1996/navidrome-automatic-rating-plugin/blob/v0.3.0/docs/CONFIGURATION.md#exclude-a-star-level) for coverage examples and the [operations guide](https://github.com/JLS1996/navidrome-automatic-rating-plugin/blob/v0.3.0/docs/OPERATIONS.md#schedule-and-manual-runs) for rearming `run_now`. Audit logs contain private library metadata; keep them local.

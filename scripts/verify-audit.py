@@ -16,7 +16,7 @@ PREFIX = "Automatic Ratings: "
 OUTCOMES = ("updated", "unchanged", "preserved", "belowQuota", "empty", "failed")
 ACTIONS = {"update": "updated", "clear": "updated", "preview_update": "updated", "preview_clear": "updated",
     "match": "unchanged", "adopt": "unchanged", "preview_adopt": "unchanged", "preserve": "preserved",
-    "keep_below_quota": "belowQuota", "skip_empty": "empty", "failed": "failed", "blocked": "failed"}
+    "keep_below_quota": "belowQuota", "skip_empty": "empty", "skip_excluded": "empty", "failed": "failed", "blocked": "failed"}
 
 
 def require(condition, message):
@@ -54,16 +54,28 @@ def read_events(lines):
     return events
 
 
+def weights_for(kind, settings):
+    values = [settings[f"{kind}_{name}_star_weight"] for name in ("one", "two", "three", "four", "five")]
+    require(all(type(value) in (int, float) for value in values), "Weights must be numbers")
+    weights = [Fraction(str(value)) for value in values]
+    require(all(0 <= value <= 10 for value in weights) and any(value > 0 for value in weights),
+        "Weights must be between 0 and 10 with at least one positive weight per output")
+    return weights
+
+
 def calculate(histogram, kind, settings):
+    weights = weights_for(kind, settings)
     total = sum(histogram)
     rated = total-histogram[0]
+    excluded = sum(histogram[i] for i in range(1, 6) if weights[i-1] == 0)
+    eligible, contributing = total-excluded, rated-excluded
     required = max(settings[f"{kind}_minimum_rated_songs"],
-        (total*settings[f"{kind}_minimum_rated_percent"]+99)//100)
-    meets = total > 0 and rated >= required
-    weights = [Fraction(str(settings[f"{kind}_{name}_star_weight"])) for name in ("one", "two", "three", "four", "five")]
+        (eligible*settings[f"{kind}_minimum_rated_percent"]+99)//100)
+    meets = eligible > 0 and contributing >= required
     score = sum(histogram[i]*i*weights[i-1] for i in range(1, 6))/sum(histogram[i]*weights[i-1] for i in range(1, 6)) if meets else None
     rating = math.floor(score+Fraction(1, 2)) if meets else 0
     return {"totalSongs": total, "ratedSongs": rated, "unratedSongs": histogram[0],
+        "excludedSongs": excluded, "eligibleSongs": eligible, "contributingRatedSongs": contributing,
         "requiredRatedSongs": required, "meetsThreshold": meets, "score": score, "rating": rating}
 
 
@@ -78,6 +90,8 @@ def verify(events, explain_artist=None, user_filter=None):
         "Enable audit_logging=true, apply settings, then capture one fresh, complete run; detail_logging=info alone does not enable audits")
     settings = configs[0]["settings"]
     require(settings.get("audit_logging") is True, "Audit logging was disabled")
+    for kind in ("album", "artist"):
+        weights_for(kind, settings)
     users, albums, artists, seen_songs = {}, {}, {}, collections.defaultdict(set)
     items = collections.defaultdict(list)
     contributions = collections.defaultdict(dict)
@@ -136,8 +150,16 @@ def verify(events, explain_artist=None, user_filter=None):
             for item in selected:
                 require(ACTIONS[item["action"]] != "failed", "Failed or blocked items cannot be independently verified")
                 result = calculate(sources[user, item["id"]], kind, settings)
-                quota_failures += int(result["totalSongs"] > 0 and not result["meetsThreshold"])
-                for field in ("totalSongs", "ratedSongs", "unratedSongs", "requiredRatedSongs", "meetsThreshold"):
+                all_excluded = result["excludedSongs"] > 0 and result["contributingRatedSongs"] == 0
+                require((item["action"] == "skip_excluded") == all_excluded, f"{kind} {item['id']}: excluded-only outcome mismatch")
+                quota_failures += int(result["totalSongs"] > 0 and not result["meetsThreshold"] and not all_excluded)
+                fields = ["totalSongs", "ratedSongs", "unratedSongs", "requiredRatedSongs", "meetsThreshold"]
+                exclusion_fields = ("excludedSongs", "eligibleSongs", "contributingRatedSongs")
+                # Older positive-weight audit logs have no exclusion fields.
+                # Zero-weight calculations always require this evidence.
+                if any(field in item for field in exclusion_fields) or 0 in weights_for(kind, settings):
+                    fields.extend(exclusion_fields)
+                for field in fields:
                     require(type(item[field]) is type(result[field]) and item[field] == result[field], f"{kind} {item['id']}: {field} mismatch")
                 score = item["score"]
                 require((score is None and result["score"] is None) or

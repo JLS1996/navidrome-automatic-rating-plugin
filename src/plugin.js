@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const AUDIT_SOURCE_FORMAT = "structured_song_ratings_v1";
 const PREFIX = "automatic-ratings:v1:";
 const STATE_KEY = PREFIX + "scan";
@@ -46,7 +46,7 @@ function readSettings(read) {
       result[key] = raw === true || raw === "true";
     } else if (typeof fallback === "number") {
       const value = typeof raw === "number" || (typeof raw === "string" && raw.trim()) ? Number(raw) : NaN;
-      const [min, max] = key.endsWith("_weight") ? [1, 10] : key.endsWith("_percent") ? [0, 100] :
+      const [min, max] = key.endsWith("_weight") ? [0, 10] : key.endsWith("_percent") ? [0, 100] :
         key.endsWith("_songs") ? [1, 1000000] : key === "batch_size" ? [1, 100] : [5, 300];
       if (!Number.isFinite(value) || value < min || value > max || (!key.endsWith("_weight") && !Number.isInteger(value))) {
         throw Error(`${key} must be ${key.endsWith("_weight") ? "a number" : "an integer"} between ${min} and ${max}`);
@@ -60,6 +60,11 @@ function readSettings(read) {
         key === "detail_logging" ? ["debug", "info", "off"] : ["preserve", "replace"];
       if (!choices.includes(raw)) throw Error(`${key} must be one of ${choices.join(", ")}`);
       result[key] = raw;
+    }
+  }
+  for (const kind of ["album", "artist"]) {
+    if (!STAR_NAMES.some(star => result[`${kind}_${star}_star_weight`] > 0)) {
+      throw Error(`${kind} weights must include at least one positive value`);
     }
   }
   return result;
@@ -82,14 +87,17 @@ function calculateRating(histogram, { minimumRatedPercent = 30, minimumRatedSong
       histogram.some(n => !Number.isSafeInteger(n) || n < 0)) throw Error("Invalid song histogram");
   if (!Number.isInteger(minimumRatedPercent) || minimumRatedPercent < 0 || minimumRatedPercent > 100 ||
       !Number.isSafeInteger(minimumRatedSongs) || minimumRatedSongs < 1) throw Error("Invalid quota");
-  if (!Array.isArray(weights) || weights.length !== 5 || weights.some(w => !Number.isFinite(w) || w < 1 || w > 10)) {
+  if (!Array.isArray(weights) || weights.length !== 5 || weights.some(w => !Number.isFinite(w) || w < 0 || w > 10) ||
+      !weights.some(w => w > 0)) {
     throw Error("Invalid weights");
   }
   const totalSongs = histogram.reduce((sum, n) => sum + n, 0);
   if (!Number.isSafeInteger(totalSongs)) throw Error("Song count overflow");
   const unratedSongs = histogram[0], ratedSongs = totalSongs - unratedSongs;
-  const requiredRatedSongs = Math.max(minimumRatedSongs, Math.ceil(totalSongs * minimumRatedPercent / 100));
-  const meetsThreshold = totalSongs > 0 && ratedSongs >= requiredRatedSongs;
+  const excludedSongs = weights.reduce((sum, w, i) => sum + (w === 0 ? histogram[i + 1] : 0), 0);
+  const eligibleSongs = totalSongs - excludedSongs, contributingRatedSongs = ratedSongs - excludedSongs;
+  const requiredRatedSongs = Math.max(minimumRatedSongs, Math.ceil(eligibleSongs * minimumRatedPercent / 100));
+  const meetsThreshold = eligibleSongs > 0 && contributingRatedSongs >= requiredRatedSongs;
   let sum = 0, weight = 0;
   for (let stars = 1; stars <= 5; stars++) {
     sum += histogram[stars] * stars * weights[stars - 1];
@@ -105,19 +113,27 @@ function calculateRating(histogram, { minimumRatedPercent = 30, minimumRatedSong
       // Decimal settings must not turn an exact half-star tie into a value just
       // below it through binary floating-point arithmetic. Scale their decimal
       // representations to integers and compare the rational value exactly.
-      const decimals = weights.map(w => String(w).split("."));
-      const places = Math.max(...decimals.map(parts => (parts[1] || "").length));
-      const scaled = decimals.map(parts => BigInt(parts[0] + (parts[1] || "").padEnd(places, "0")));
+      // Values below 1 may use scientific notation, including subnormal values.
+      const decimals = weights.map(w => {
+        const [mantissa, exponent = "0"] = String(w).split("e");
+        const [whole, fraction = ""] = mantissa.split(".");
+        return { coefficient: BigInt(whole + fraction), exponent: Number(exponent) - fraction.length };
+      });
+      const exponent = Math.min(...decimals.map(value => value.exponent));
+      const scaled = decimals.map(value => value.coefficient * 10n ** BigInt(value.exponent - exponent));
       let numerator = 0n, denominator = 0n;
       for (let stars = 1; stars <= 5; stars++) {
         const weightedCount = BigInt(histogram[stars]) * scaled[stars - 1];
         numerator += weightedCount * BigInt(stars); denominator += weightedCount;
       }
-      score = Number(numerator) / Number(denominator);
+      // Keep the logged approximation finite even when the common decimal
+      // scale exceeds Number's range. The star decision uses the exact ratio.
+      const precision = 1n << 53n;
+      score = Number(numerator / denominator) + Number((numerator % denominator) * precision / denominator) / Number(precision);
       rating = Number((2n * numerator + denominator) / (2n * denominator));
     }
   }
-  return { score, rating, totalSongs, ratedSongs, unratedSongs,
+  return { score, rating, totalSongs, ratedSongs, unratedSongs, excludedSongs, eligibleSongs, contributingRatedSongs,
     requiredRatedSongs, meetsThreshold };
 }
 function calculateFor(kind, histogram, settings) {
@@ -210,8 +226,13 @@ function resolveOwner(owner, current) {
   if (manualOverride) next = { version: 1, rating: null, manual: true, pending: null };
   return { owner: next, recovered, manualOverride };
 }
+function allRatedSongsExcluded(result) {
+  return result.excludedSongs > 0 && result.contributingRatedSongs === 0;
+}
 function decideRating(result, current, owner, policy, clear) {
   if (!result.totalSongs) return { outcome: "empty", action: "skip_empty", target: null, reason: "no_songs" };
+  if (allRatedSongsExcluded(result)) return { outcome: "empty", action: "skip_excluded", target: null,
+    reason: "no_contributing_rated_songs" };
   if (policy === "preserve" && (owner?.manual || (owner?.rating === null || !owner) && current > 0)) {
     return { outcome: "preserved", action: "preserve", target: null,
       reason: owner?.manual ? "manual_override" : "existing_unmanaged_rating" };
@@ -701,6 +722,8 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       existingRating: current, proposedRating: decision.target, score: result?.score ?? null,
       totalSongs: result?.totalSongs ?? null, ratedSongs: result?.ratedSongs ?? null,
       unratedSongs: result?.unratedSongs ?? null, requiredRatedSongs: result?.requiredRatedSongs ?? null,
+      excludedSongs: result?.excludedSongs ?? null, eligibleSongs: result?.eligibleSongs ?? null,
+      contributingRatedSongs: result?.contributingRatedSongs ?? null,
       meetsThreshold: result?.meetsThreshold ?? null, dryRun: settings.dry_run,
       reason: decision.reason, error };
     const level = decision.outcome === "failed" ? "error" : settings.audit_logging ? "info" : settings.detail_logging;
@@ -708,7 +731,7 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
   }
   function countOutcome(summary, result, decision, manualOverride, adopted) {
     summary.processed++; summary[decision.outcome]++;
-    if (result?.totalSongs > 0 && !result.meetsThreshold) summary.quotaFailures++;
+    if (result?.totalSongs > 0 && !result.meetsThreshold && !allRatedSongsExcluded(result)) summary.quotaFailures++;
     if (manualOverride) summary.manualOverrides++;
     if (adopted) summary.adopted++;
     if (decision.outcome === "updated") {

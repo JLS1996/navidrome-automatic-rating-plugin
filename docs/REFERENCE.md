@@ -8,7 +8,16 @@ This page covers calculation contracts, source validation, event schemas, recove
 
 The plugin requires Navidrome OpenSubsonic responses. Unrated songs and artists omit `userRating`; that omission means zero. Explicit nulls, strings, out-of-range ratings, or malformed source objects are errors. OpenSubsonic album ratings must be present, including zero.
 
-Coverage uses the full song count, including unrated songs. Only rated songs enter the weighted mean. Both the percentage quota, rounded up, and minimum rated-song count must be met. Empty sources never trigger clearing. Decimal weights use exact integer ratios for half-star comparisons; the logged score is a floating-point approximation.
+Weights accept 0 through 10; at least one tier per output must be positive. Defaults remain 1, 2, 3, 4, 5. Zero-weight tiers are excluded independently for albums and artists:
+
+```text
+excludedSongs = rated songs whose tier has zero weight
+eligibleSongs = totalSongs - excludedSongs
+contributingRatedSongs = ratedSongs - excludedSongs
+requiredRatedSongs = max(minimum count, ceil(eligibleSongs × percentage / 100))
+```
+
+Unrated songs remain in `eligibleSongs`. Both the percentage and minimum-count requirements must be met by contributing rated songs. Only those songs enter the weighted mean. If all rated songs are excluded, `skip_excluded` retains the current rating with reason `no_contributing_rated_songs`, null score/target, and an `empty` outcome. Genuinely all-unrated sources still follow clearing policy. No-source and incomplete sources never trigger clearing. Decimal weights, including scientific notation, use exact integer ratios for half-star comparisons; the logged score is a floating-point approximation.
 
 ## Source validation and recovery
 
@@ -35,10 +44,11 @@ Each plugin line begins `Automatic Ratings: ` followed by JSON with `schemaVersi
 ```text
 action, kind, user, id, name, existingRating, proposedRating, score,
 totalSongs, ratedSongs, unratedSongs, requiredRatedSongs, meetsThreshold,
+excludedSongs, eligibleSongs, contributingRatedSongs,
 dryRun, reason, error
 ```
 
-Unavailable item values are null. Routine item records follow `detail_logging`; failed and blocked items remain at error level even when details are off. When album output is disabled, an unreadable album emits `source_album_failed` with its user/ID/name, reason, and `action:"defer_artist_writes"`, rather than an uncounted album item event. Audit mode promotes routine item records to info and also emits `audit_config` and `source_album` evidence.
+Unavailable item values are null. `totalSongs`, `ratedSongs`, and `unratedSongs` retain the full source counts; use the three exclusion fields to reproduce coverage after filtering. Routine item records follow `detail_logging`; failed and blocked items remain at error level even when details are off. When album output is disabled, an unreadable album emits `source_album_failed` with its user/ID/name, reason, and `action:"defer_artist_writes"`, rather than an uncounted album item event. Audit mode promotes routine item records to info and also emits `audit_config` and `source_album` evidence.
 
 `enabled`, `run_started`, `user_summary`, and `run_summary` expose `auditLogging` and `auditSourceFormat` (`structured_song_ratings_v1`, or null when disabled). These fields confirm whether independent evidence was requested; `detail_logging=info` alone never enables it.
 
@@ -54,12 +64,14 @@ cleared = ratingCounts[0]
 - `unchanged`: calculated rating already matches; can include explicit adoption.
 - `preserved`: unmanaged/manual rating protected by preserve policy.
 - `belowQuota`: insufficient coverage with no change, because the item is already unrated or clearing is disabled.
-- `empty`: no source songs; no clear occurs.
+- `empty`: no source songs, or every rated song was excluded; no rating write or adoption occurs.
 - `failed`: read/write/validation failure, or an artist blocked by incomplete sources.
 
-`quotaFailures` counts all nonempty below-quota evaluations, including preserved ratings, clears, and failures, so it overlaps primary outcomes. `adopted` is a subset of unchanged. `manualOverrides` counts detected ownership overrides. Failed writes do not enter `ratingCounts`. A recovered write may be reported as matching on retry; these summaries are evaluation counts, not a transactional change journal.
+`quotaFailures` counts below-quota evaluations with source songs, including preserved ratings, clears, and failures, so it overlaps primary outcomes. Entirely excluded rated sources do not count as quota failures. `adopted` is a subset of unchanged. `manualOverrides` counts detected ownership overrides. Failed writes do not enter `ratingCounts`. A recovered write may be reported as matching on retry; these summaries are evaluation counts, not a transactional change journal.
 
-Skipped users have `skipped:true`, `skipReason:"no_rated_songs_or_eligible_clears"`, zero processed items/distributions, and no item events. `run_summary.users` includes them; `usersSkipped` counts them. `scannedSongs` includes the validated source used for either scan mode. `preflightSongs` separately counts bulk song rows read, including preliminary rows discarded on fallback. Ordinary full scans of wholly unrated users emit `user_unrated` instead.
+Skipped users have `skipped:true`, `skipReason:"no_rated_songs_or_eligible_clears"`, zero processed items/distributions, and no item events. `run_summary.users` includes them; `usersSkipped` counts them. `scannedSongs` and summary `ratedSongs` retain raw source counts, including zero-weight tiers. `preflightSongs` separately counts bulk song rows read, including preliminary rows discarded on fallback. Ordinary full scans of wholly unrated users emit `user_unrated` instead. A positive raw song rating still triggers full evaluation even when its tier has zero weight.
+
+Audit evidence retains every source song, rating, and credit; exclusions do not weaken source validation. The independent verifier reconstructs the filtered counts and scores from this evidence. `structured_song_ratings_v1` is unchanged, and older positive-weight audit logs without exclusion fields remain supported.
 
 ### Progress scopes
 
@@ -123,7 +135,7 @@ With `ffmpeg` and the checksum-verified official Navidrome 0.64.2 (10114574) bin
 python3 scripts/test-navidrome.py --navidrome /path/to/navidrome
 ```
 
-The script creates a new temporary library, generated music files, users, database, and plugin storage; it binds only to loopback and never accepts an existing server or data directory. It checks a custom-quota migration with matching and differing foreign ratings, then repeats it to verify zero writes, zero new adoptions, and unchanged annotation timestamps. Every run reconciles database rating/timestamp changes with summary write counts, including song isolation. It also checks manual edits (including zero), preserve/replace, clears, performing attribution, and unchanged music files. A seeded pending intent checks recovery after lost ownership finalization. Success removes the fixture; failure retains it for diagnosis. This tests a controlled installation, not writes on a user's production library.
+The script creates a new temporary library, generated music files, users, database, and plugin storage; it binds only to loopback and never accepts an existing server or data directory. It checks a custom-quota migration with matching and differing foreign ratings, then repeats it to verify zero writes, zero new adoptions, and unchanged annotation timestamps. Every run reconciles database rating/timestamp changes with summary write counts, including song isolation. It also checks manual edits (including zero), preserve/replace, clears, performing attribution, independent zero-weight exclusions, and unchanged music files. Excluded-only rated sources retain their values; genuinely unrated outputs can still clear. A seeded pending intent checks recovery after lost ownership finalization. Success removes the fixture; failure retains it for diagnosis. This tests a controlled installation, not writes on a user's production library.
 
 For the native Extism benchmark:
 

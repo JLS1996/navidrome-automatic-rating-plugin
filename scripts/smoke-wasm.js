@@ -28,6 +28,11 @@ async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";a
       histogram:[0,1,0,1,0,0],options:{weights:[1.1,1,weight,1,1]}}));
     assert.equal(fractional.json().rating,rating);
   }
+  for(const [histogram,weights,rating]of[[[0,4,0,0,0,1],[0,2,3,4,5],5],
+    [[0,1,0,1,0,0],[1e-7,0,3e-7,0,0],3],[[0,1,0,0,0,1],[5e-324,0,0,0,1],5]]){
+    const filtered=await invoke(h,config,"automatic_ratings_calculate",JSON.stringify({histogram,options:{weights}}));
+    assert.equal(filtered.json().rating,rating);assert.ok(Number.isFinite(filtered.json().score));
+  }
   await worker(h,config);
   assert.equal(h.state().active,false);assert.deepEqual(h.writes,[]);
   const artist=h.events("item").find(e=>e.kind==="artist"&&e.id==="album-artist"&&e.user==="example-reader");
@@ -77,7 +82,20 @@ async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";a
   await invoke(guarded,guardConfig,"nd_on_init");await worker(guarded,guardConfig);
   assert.equal(scanStarted,true);assert.deepEqual(guarded.writes,[]);
   assert.equal(decode(guarded.storage.get(guardKey)).pending.target,5);
-  const audit=fixture(),auditConfig={run_now:"true",audit_logging:"true"};
+  const excluded=fixture({users:["example-reader"]}),excludedConfig={run_now:"true",dry_run:"false",
+    album_one_star_weight:"0",artist_one_star_weight:"0",album_rating_policy:"replace",artist_rating_policy:"replace"};
+  excluded.setRating("example-reader","album","album-b",4);
+  await invoke(excluded,excludedConfig,"nd_on_init");await worker(excluded,excludedConfig);
+  assert.equal(excluded.getRating("example-reader","album","album-b"),4);
+  assert.equal(excluded.getRating("example-reader","artist","album-artist"),5);
+  const skipped=excluded.events("item").find(e=>e.kind==="album"&&e.id==="album-b");
+  assert.equal(skipped.action,"skip_excluded");assert.equal(skipped.excludedSongs,4);
+  assert.equal(skipped.eligibleSongs,0);assert.equal(skipped.contributingRatedSongs,0);
+  for(const album of excluded.albums)for(const song of album.songs)song.userRating=0;
+  await again(excluded,excludedConfig);
+  assert.equal(excluded.getRating("example-reader","album","album-b"),0);
+  assert.equal(excluded.getRating("example-reader","artist","album-artist"),0);
+  const audit=fixture(),auditConfig={run_now:"true",audit_logging:"true",album_one_star_weight:"0",artist_one_star_weight:"0"};
   audit.albums[0].artists.push({id:"collaborator",name:"Example collaborator"});
   await invoke(audit,auditConfig,"nd_on_init");await worker(audit,auditConfig);
   assert.equal(audit.events("run_summary")[0].auditLogging,true);
@@ -92,5 +110,5 @@ async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";a
     assert.deepEqual(report.artistExplanations[0].contributions[0].songs,
       [{id:"album-a-song-0",rating:5,artistIds:["album-artist","collaborator"]}]);
   }finally{fs.rmSync(temp,{recursive:true,force:true});}
-  console.log("Compiled WASM smoke passed: independent outputs, exact fractional ties, dry-run isolation, ownership, clears, final write guards, performing credits, safe unrated-user skips, native host imports, scheduler rearming, audit status, and independent artist explanations.");
+  console.log("Compiled WASM smoke passed: independent outputs, exact fractional ties, zero-weight exclusions, dry-run isolation, ownership, clears, final write guards, performing credits, safe unrated-user skips, native host imports, scheduler rearming, audit status, and independent artist explanations.");
 })().catch(error=>{console.error(error);process.exitCode=1;});
