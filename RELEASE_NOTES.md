@@ -1,3 +1,13 @@
+# Automatic Ratings v0.3.0 — unreleased
+
+- Allow weights from **0 to 10**, independently for album and artist calculations. Set `album_one_star_weight=0` and/or `artist_one_star_weight=0` to exclude 1-star songs; other tiers can also be excluded. Defaults remain **1, 2, 3, 4, 5**.
+- Remove excluded songs from scoring and the coverage pool. Unrated songs remain in coverage, and the minimum count applies to contributing rated songs. Require at least one positive tier per output.
+- Retain existing ratings when every rated song is excluded, including under replace with clearing enabled. Genuinely unrated sources still follow clearing policy.
+- Add exclusion/eligible/contributing counts to item logs and independent artist explanations. Preserve full source evidence, raw counters, ownership keys, and checkpoint compatibility.
+- Support small positive decimal weights, including scientific notation, with exact half-up rounding and finite logged scores.
+
+**Status:** source tests pass. The package build, compiled WASM checks, and isolated Navidrome integration for this version are pending. The published package remains v0.2.0. See [configuration](docs/CONFIGURATION.md#exclude-a-star-level) for examples and coverage details.
+
 # Automatic Ratings v0.2.0 — first regular release
 
 Download the ready-to-install [automatic-ratings.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp) and [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256`, replace the package in Navidrome's plugins directory, and restart. No source build, Node.js, or Python is needed to install it.

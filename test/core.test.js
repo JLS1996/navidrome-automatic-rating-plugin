@@ -30,7 +30,7 @@ test("fractional weights round exact half-stars up without promoting values belo
 test("invalid histograms, quotas and weights are rejected",()=>{
   for(const h of [null,[],[0,0,0,0,0,-1],[0,0,0,0,0,0.5],[0,0,0,0,0,Infinity]])assert.throws(()=>calculateRating(h));
   for(const options of [{minimumRatedSongs:0},{minimumRatedPercent:101},{minimumRatedPercent:3.5},
-    {weights:[1,1,1,1,0]},{weights:[1,2,3]},{weights:[1,1,1,1,NaN]}])assert.throws(()=>calculateRating(hist(3),options));
+    {weights:[0,0,0,0,0]},{weights:[1,2,3]},{weights:[1,1,1,1,NaN]}])assert.throws(()=>calculateRating(hist(3),options));
 });
 test("settings defaults and signatures separate operational controls from calculation safety",()=>{
   assert.deepEqual(readSettings(()=>undefined),DEFAULTS);
@@ -109,6 +109,9 @@ test("manifest defaults, version, bounds, website and UI controls match runtime 
   const properties=manifest.config.schema.properties;
   assert.deepEqual(Object.keys(properties).sort(),Object.keys(DEFAULTS).sort());
   for(const [key,value]of Object.entries(DEFAULTS))assert.deepEqual(properties[key].default,value,key);
+  for(const key of Object.keys(DEFAULTS).filter(key=>key.endsWith("_weight"))){
+    assert.equal(properties[key].minimum,0);assert.equal(properties[key].maximum,10);
+  }
   const controls=[];
   function visit(node){if(node.type==="Control")controls.push(node.scope.split("/").pop());for(const child of node.elements??[])visit(child);}
   visit(manifest.config.uiSchema);assert.deepEqual(controls.sort(),Object.keys(DEFAULTS).sort());

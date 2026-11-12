@@ -55,6 +55,8 @@ In a dry run, `updated` counts proposed changes; with writes enabled, it counts 
 
 Ratings reflect their **source read time**, not one frozen database state at run completion. An active library scan or incomplete/changing source can defer updates; review failures and request a new run after the source is stable. Include the full intended library scope when comparing artist totals.
 
+When [zero weights](CONFIGURATION.md#exclude-a-star-level) are configured, item logs show `excludedSongs`, `eligibleSongs`, and `contributingRatedSongs` alongside the original source counts. `skip_excluded` means every rated song was excluded: the existing rating is retained and the item counts as `empty`, with no quota failure. Genuinely unrated items still follow the clearing policy; partially contributing items must still meet coverage.
+
 ### Check a repeat run
 
 After a successful live run, request another with the same song/target ratings, catalogue, settings, and plugin storage. Expect `updated=0`, `adopted=0`, and all-zero `ratingCounts`; database ratings and `rated_at` timestamps should stay unchanged. Matching owned items count as `unchanged`; preserved and below-quota outcomes can remain. Rearm `run_now` as described [above](#schedule-and-manual-runs).
@@ -71,6 +73,6 @@ python3 scripts/verify-audit.py /path/to/local-audit.log
 python3 scripts/verify-audit.py /path/to/local-audit.log --explain-artist ARTIST_ID --user USERNAME
 ```
 
-The standard-library verifier checks the whole run using exact fractions. Missing evidence or a mismatch fails with a nonzero exit code. Artist explanations list per-album song IDs, credits, histograms, quotas, and scores; omit `--user` to explain all matching users. Checks use captured read-time data, not later database contents or ownership provenance.
+The standard-library verifier checks the whole run using exact fractions, including zero-weight exclusions. Missing evidence or a mismatch fails with a nonzero exit code. Artist explanations list per-album song IDs, credits, raw histograms, filtered coverage counts, quotas, and scores; omit `--user` to explain all matching users. Excluded songs remain visible in the evidence. Checks use captured read-time data, not later database contents or ownership provenance.
 
 Audit logs contain private user identifiers, song IDs, and credit relationships. Keep them local and turn audit logging off afterward, restarting Navidrome where required.

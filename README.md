@@ -32,6 +32,8 @@ Enabled = true
 | [Operations](docs/OPERATIONS.md) | Installation, migration, upgrades, manual runs, monitoring, repeat-run checks, and independent audits. |
 | [Technical reference](docs/REFERENCE.md) | Source validation, recovery, event schemas, storage, building, and tests. |
 
+Upcoming v0.3.0 adds [zero weights to exclude star levels](docs/CONFIGURATION.md#exclude-a-star-level); defaults stay unchanged.
+
 Album/artist writes have been verified in production on Navidrome 0.64.2. See [validation details](docs/OPERATIONS.md#validation-status) and the [release notes](RELEASE_NOTES.md).
 
 ## License

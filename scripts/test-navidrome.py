@@ -266,8 +266,37 @@ def exercise(binary, package):
         run(artist_attribution="performing_artist", rate_albums=False)
         performer = bright["song"][0]["artists"][0]["id"]
         check(rating("artist", performer) == 5 and rating("artist", catalogue) == 0, "Performing attribution failed")
+
+        # Exclude 1-star songs without weakening source validation or turning an
+        # excluded-only album into a clear, even with replace enabled.
+        for song in dim["song"]:
+            api("setRating", id=song["id"], rating=1)
+        api("setRating", id=dim["id"], rating=4)
+        run(rate_albums=True, artist_attribution="album_artist", album_one_star_weight=0, artist_one_star_weight=0,
+            album_rating_policy="replace", artist_rating_policy="replace")
+        check(rating("album", bright["id"]) == 5 and rating("album", dim["id"]) == 4 and
+            rating("artist", catalogue) == 5, "Zero weights did not exclude low-rated songs independently")
+        skipped = [event for event in events() if event.get("action") == "skip_excluded" and event.get("id") == dim["id"]][-1]
+        check(skipped["totalSongs"] == skipped["excludedSongs"] == 4 and
+            skipped["eligibleSongs"] == skipped["contributingRatedSongs"] == 0, "Missing exclusion evidence")
+        run(album_one_star_weight=1)
+        check(rating("album", dim["id"]) == 1 and rating("artist", catalogue) == 5,
+            "Album and artist weights are not independent")
+        api("setRating", id=bright["song"][0]["id"], rating=1)
+        result = run(album_one_star_weight=0)
+        check(result["albums"]["updated"] == result["artists"]["updated"] == 0 and
+            result["albums"]["adopted"] == result["artists"]["adopted"] == 0 and
+            rating("album", bright["id"]) == 5 and rating("album", dim["id"]) == 1 and
+            rating("artist", catalogue) == 5, "Entirely excluded rated sources must retain existing values")
+        for album in (bright, dim, sparse):
+            for song in album["song"]:
+                api("setRating", id=song["id"], rating=0)
+        result = run()
+        check(result["albums"]["cleared"] == 2 and result["artists"]["cleared"] == 1 and
+            rating("album", bright["id"]) == rating("album", dim["id"]) == rating("artist", catalogue) == 0,
+            "Zero-weight settings must still clear genuinely unrated eligible outputs")
         check(all(hashlib.sha256(path.read_bytes()).digest() == digest for path, digest in file_hashes.items()), "Music files changed")
-        print("Real Navidrome integration passed: audit dry run, custom-quota migration, writes, adoption, pending-intent recovery, zero-write/timestamp convergence, manual overrides, replace, clears, performing attribution, song/file isolation.", flush=True)
+        print("Real Navidrome integration passed: audit dry run, custom-quota migration, writes, adoption, pending-intent recovery, zero-write/timestamp convergence, manual overrides, replace, clears, performing attribution, zero-weight exclusions, song/file isolation.", flush=True)
     except BaseException:
         print(f"Fictional integration fixture retained at {root}", flush=True)
         raise
