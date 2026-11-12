@@ -188,4 +188,4 @@ See the [technical reference](docs/REFERENCE.md) for source validation, recovery
 
 ## License
 
-[MIT](LICENSE). This separate combined implementation builds on the Artist Ratings plugin and is inspired by [mattnic/navidrome-album-ratings](https://github.com/mattnic/navidrome-album-ratings).
+[MIT](LICENSE). This Plugin is inspired by [mattnic/navidrome-album-ratings](https://github.com/mattnic/navidrome-album-ratings).
