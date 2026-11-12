@@ -4,6 +4,8 @@
 
 Change these settings in Navidrome's plugin UI. Album and artist options are independent. Preview changes with `dry_run=true`, then follow the [operations guide](OPERATIONS.md) to apply ratings or request another run. The [manifest](../manifest.json) contains the complete schema.
 
+The settings UI groups options under **Start here**, **Album ratings**, **Artist ratings**, and **Schedule and logs**. Dropdown labels are written for readability; the configuration values documented below stay the same. Checkbox help is shown explicitly because Navidrome 0.64.2 hides schema descriptions for switches.
+
 ## Choose what to rate
 
 Album and artist settings are independent: choose either output or both, with separate policies, coverage requirements, and weights.

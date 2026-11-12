@@ -96,7 +96,10 @@ function calculateRating(histogram, { minimumRatedPercent = 30, minimumRatedSong
   const unratedSongs = histogram[0], ratedSongs = totalSongs - unratedSongs;
   const excludedSongs = weights.reduce((sum, w, i) => sum + (w === 0 ? histogram[i + 1] : 0), 0);
   const eligibleSongs = totalSongs - excludedSongs, contributingRatedSongs = ratedSongs - excludedSongs;
-  const requiredRatedSongs = Math.max(minimumRatedSongs, Math.ceil(eligibleSongs * minimumRatedPercent / 100));
+  // Split before multiplying so even safe-integer song counts keep an exact
+  // percentage ceiling (the intermediate count * percent can exceed 2^53).
+  const requiredRatedSongs = Math.max(minimumRatedSongs,
+    Math.floor(eligibleSongs / 100) * minimumRatedPercent + Math.ceil((eligibleSongs % 100) * minimumRatedPercent / 100));
   const meetsThreshold = eligibleSongs > 0 && contributingRatedSongs >= requiredRatedSongs;
   let sum = 0, weight = 0;
   for (let stars = 1; stars <= 5; stars++) {
@@ -264,7 +267,17 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     if (response.type !== "navidrome" || response.openSubsonic !== true) throw Error("Navidrome OpenSubsonic responses are required");
     return response;
   }
-  function get(key) { const r = call("kvstore_get", { key }); return r.exists ? decode(r.value) : null; }
+  function stored(key) {
+    const r = call("kvstore_get", { key });
+    // Navidrome's Go response omits both exists=false and an empty value.
+    if (r.exists === undefined && r.value === undefined) return { exists: false };
+    // An existing zero-byte value is saved-data corruption, not a read outage;
+    // let the decoder handle it (and reset a corrupt scan checkpoint).
+    if (r.exists === true && r.value === undefined) return { exists: true, value: "" };
+    if (typeof r.exists !== "boolean" || (r.exists && typeof r.value !== "string")) throw Error("Invalid storage response");
+    return r;
+  }
+  function get(key) { const r = stored(key); return r.exists ? decode(r.value) : null; }
   function put(key, value) { call("kvstore_set", { key, value: encode(value) }); }
   function event(level, eventName, data = {}) {
     log(level, `Automatic Ratings: ${JSON.stringify({ schemaVersion: 1, event: eventName, ...data })}`);
@@ -301,9 +314,12 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
         preflightSongs: 0, usersSkipped: 0 } };
   }
   function loadState() {
+    // A failed read is not evidence of a corrupt checkpoint. Let the worker
+    // retry without overwriting progress when the storage backend recovers.
+    const saved = stored(STATE_KEY);
     let state;
     try {
-      state = get(STATE_KEY);
+      state = saved.exists ? decode(saved.value) : null;
       if (!state) return freshState();
       if (state.version === 1 || state.version === 2) {
         event("info", "checkpoint_upgraded", { action: "wait_for_new_request", previousRunActive: state.active === true,
@@ -405,7 +421,7 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       ...snapshotMetrics(state) });
     // Retain completed-run totals but discard the oversized partial snapshot.
     state.active = false; state.current = null; state.completedAt = now();
-    put(METRICS_KEY, metrics); put(STATE_KEY, state);
+    put(STATE_KEY, state); saveMetrics();
     throw Error("Scan state limit exceeded; scan cancelled");
   }
   function measureState(state) {
@@ -425,8 +441,14 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     call("kvstore_set", { key: STATE_KEY, value: btoa(json) });
     metrics.snapshotBytes = json.length; metrics.peakSnapshotBytes = Math.max(metrics.peakSnapshotBytes, json.length);
     metrics.peakReservedBytes = Math.max(metrics.peakReservedBytes, json.length);
-    put(METRICS_KEY, metrics);
+    saveMetrics();
     measuredState = state; reservedBytes = json.length;
+  }
+  function saveMetrics() {
+    // Telemetry must not discard a valid scan or prevent a capacity-limit
+    // cancellation from being persisted. The checkpoint is authoritative.
+    try { put(METRICS_KEY, metrics); }
+    catch (error) { event("warn", "snapshot_metrics_save_failed", { reason: error.message }); }
   }
   function cancel(state, reason) {
     state.active = false; state.current = null; state.completedAt = now();
@@ -743,6 +765,7 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     const c = state.current, summary = c[`${kind}sSummary`];
     const result = calculateFor(kind, histogram, settings);
     let decision, manualOverride = false, adopted = false;
+    let intentKey = null, restoreOwner = null, writeAttempted = false;
     try {
       const key = ownerKey(c.user, kind, item.id), storedOwner = get(key);
       const resolved = resolveOwner(storedOwner, current);
@@ -760,14 +783,20 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
         if (!settings.dry_run && decision.outcome === "updated") {
           // Persist intent before the final safety checks. Access, settings, or
           // scan status can change while storage is being written, too.
+          intentKey = key;
+          restoreOwner = owner || { version: 1, rating: null, manual: false, pending: null };
           put(key, { version: 1, rating: owner?.rating ?? null, manual: owner?.manual ?? false,
             pending: { before: current, target: decision.target } });
         }
+        // Intent persistence can take time. Re-read the target (and album
+        // source) afterward, then keep context/scanner checks closest to writes.
+        if (intentKey && fresh() !== current) throw Error("Rating changed concurrently; deferred");
         if (!checkContext(state, readSettings(readConfig))) throw Error("Scan context changed; deferred");
         assertNotScanning(c.user);
         adopted = decision.outcome === "unchanged" && (owner?.rating !== current || owner?.manual);
         if (!settings.dry_run) {
           if (decision.outcome === "updated") {
+            writeAttempted = true;
             api("setRating", c.user, { id: item.id, rating: decision.target });
             const endpoint = kind === "album" ? "getAlbum" : "getArtist";
             const verified = api(endpoint, c.user, { id: item.id })[kind];
@@ -781,6 +810,13 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
         if (adopted) decision.action = settings.dry_run ? "preview_adopt" : "adopt";
       }
     } catch (error) {
+      // No API write was attempted: this intent cannot represent a successful
+      // write. Remove it so a later matching manual edit is not adopted as ours.
+      // After an attempted call, retain intent because its response may be lost.
+      if (intentKey && !writeAttempted) {
+        try { put(intentKey, restoreOwner); }
+        catch (cleanupError) { event("error", "write_intent_cleanup_failed", { kind, user: c.user, id: item.id, reason: cleanupError.message }); }
+      }
       decision = { outcome: "failed", action: "failed", target: null, reason: "target_failed" };
       itemEvent(kind, item, c, result, current, decision, settings, error.message);
       countOutcome(summary, result, decision, manualOverride, false);

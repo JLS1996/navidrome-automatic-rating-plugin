@@ -36,6 +36,10 @@ Enabled = true
 
 Album/artist writes have been verified in production on Navidrome 0.64.2. See [validation details](docs/OPERATIONS.md#validation-status) and the [release notes](RELEASE_NOTES.md).
 
+## Audit and feature ideas
+
+See the [audit report](docs/AUDIT.md) for fixes, validation, remaining constraints, and proposed features. Feature proposals are not implemented.
+
 ## License
 
 [MIT](LICENSE).

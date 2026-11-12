@@ -334,7 +334,7 @@ test("settings, access, and scanner changes while persisting a write intent defe
       if(!changed&&name==="kvstore_set"&&request.key===key&&decode(request.value).pending){changed=true;change(h,config);}
     };
     h.run(config);assert.equal(changed,true);assert.deepEqual(h.writes,[]);
-    assert.equal(decode(h.storage.get(key)).pending.target,kind==="album"?5:3);
+    assert.equal(decode(h.storage.get(key)).pending,null); // No write was attempted.
   }
 });
 test("corrupt ownership protects the affected rating even in replace mode",()=>{

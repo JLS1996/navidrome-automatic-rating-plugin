@@ -20,7 +20,7 @@ function fixture(options = {}) {
     h.calls.push({name, request:structuredClone(request)});
     if (h.before) {const result=h.before(name,request); if(result !== undefined)return result;}
     let result;
-    if (name === "kvstore_get") result=h.storage.has(request.key)?{exists:true,value:h.storage.get(request.key)}:{exists:false};
+    if (name === "kvstore_get") result=h.storage.has(request.key)?{exists:true,value:h.storage.get(request.key)}:{};
     else if (name === "kvstore_list") {const keys=[...h.storage.keys()].filter(key=>key.startsWith(request.prefix)).sort();result=keys.length?{keys}:{};}
     else if (name === "kvstore_set") {
       if(Buffer.from(request.value,"base64").toString("base64")!==request.value)throw Error("Invalid base64 host value");
