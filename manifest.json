@@ -1,7 +1,7 @@
 {
   "name": "Automatic Ratings",
   "author": "Automatic Ratings contributors",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Generate per-user album and artist ratings independently from user-rated songs.",
   "website": "https://github.com/JLS1996/navidrome-automatic-rating-plugin",
   "permissions": {

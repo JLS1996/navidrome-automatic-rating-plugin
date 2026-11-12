@@ -1,30 +1,34 @@
-# Automatic Ratings v0.3.0 — optional star exclusions
+# Automatic Ratings v0.3.1
 
-Download the ready-to-install [automatic-ratings.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.0/automatic-ratings.ndp) and [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.0/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256`. No source build is needed.
+Safer rating updates and clearer settings in Navidrome, with a reorganized README and setup guides.
 
-## Exclude 1-star songs with the existing weight controls
+## Fixes
 
-Weights now accept **0 to 10**, independently for albums and artists. To exclude 1-star songs from both outputs, set:
+- Recheck ratings after saving a write intent so manual edits made during preparation are deferred instead of overwritten. Album updates also recheck their source songs.
+- Restore ownership when no rating write was attempted, preventing a later matching manual rating from being mistaken for plugin output. Attempted but unverified writes keep their recovery intent.
+- Preserve scan progress when checkpoint storage is temporarily unreadable.
+- Keep metrics-save failures from interrupting scans or preventing capacity cancellation.
+- Correct percentage-quota rounding for very large song counts.
 
-```json
-{
-  "album_one_star_weight": 0,
-  "artist_one_star_weight": 0
-}
+## Settings and documentation
+
+- Add spacing and clear sections for outputs, artist credits, coverage, policies, weights, performance, and logging.
+- Show readable dropdown choices and visible help for checkboxes in Navidrome 0.64.2.
+- Simplify installation instructions and consolidate first-run guidance into one prominent README callout.
+- Add an [audit report](https://github.com/JLS1996/navidrome-automatic-rating-plugin/blob/v0.3.1/docs/AUDIT.md) with findings, remaining limitations, and feature recommendations. Proposed features are not implemented.
+
+## Download and upgrade
+
+Download [automatic-ratings.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.1/automatic-ratings.ndp) and its [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.1/automatic-ratings.ndp.sha256). Verify them in the download directory:
+
+```bash
+sha256sum -c automatic-ratings.ndp.sha256
 ```
 
-Change either setting independently; any star level can be excluded. Defaults stay **1, 2, 3, 4, 5**, so existing configurations behave as before. A positive decimal such as `0.1` softens a tier's influence without excluding it. At least one tier per output must stay positive.
+Replace the existing package, keeping the filename and plugin storage, then restart Navidrome. On Navidrome 0.64.2, restart after settings or permission edits as well. Existing settings, defaults, permissions, and ownership records remain compatible. Song ratings and music files stay unchanged.
 
-Excluded songs leave both scoring and the coverage pool. Unrated songs remain in coverage, and the minimum rated-song count applies to contributing songs. If every rated song is excluded, the item retains its existing rating, even under replace with clearing enabled. Genuinely unrated sources still follow clearing policy. Song ratings and music files stay unchanged.
+Requires **Navidrome 0.64.2 or newer** with native plugins enabled. For setup and usage, see the [README](https://github.com/JLS1996/navidrome-automatic-rating-plugin/blob/v0.3.1/README.md).
 
-## Diagnostics and validation
+## Validation
 
-- Item logs and independent artist explanations include `excludedSongs`, `eligibleSongs`, and `contributingRatedSongs`. Raw source counts and audit evidence remain available.
-- Small positive decimal weights, including scientific notation, retain exact half-up rounding and finite logged scores.
-- Release checks cover 111 source tests, compiled WASM smoke tests, independent audit verification, native scaling/write checks, package integrity, and an isolated Navidrome 0.64.2 fixture with fictional users and music. The fixture exercises independent exclusions, retention when all rated songs are excluded, ordinary clears, migration, repeat runs, recovery, and song/file isolation.
-
-## Upgrade
-
-Back up the Navidrome database and plugin storage, replace the `.ndp` package, and restart Navidrome. Keep the package filename/ID and plugin storage so ownership evidence survives. Preview weight changes with `dry_run=true`, then request a fresh run. On Navidrome 0.64.2, restart after settings/grant edits too.
-
-See the [configuration guide](https://github.com/JLS1996/navidrome-automatic-rating-plugin/blob/v0.3.0/docs/CONFIGURATION.md#exclude-a-star-level) for coverage examples and the [operations guide](https://github.com/JLS1996/navidrome-automatic-rating-plugin/blob/v0.3.0/docs/OPERATIONS.md#schedule-and-manual-runs) for rearming `run_now`. Audit logs contain private library metadata; keep them local.
+117 source tests, compiled WASM smoke tests, native scaling/write checks, package integrity, and isolated Navidrome 0.64.2 integration. The integration fixture uses fictional users and music and checks migration, adoption, recovery, manual overrides, clears, zero-weight exclusions, repeat-run convergence, and unchanged songs/files.
