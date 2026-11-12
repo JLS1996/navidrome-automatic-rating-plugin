@@ -1,6 +1,6 @@
 "use strict";
 const test=require("node:test"), assert=require("node:assert/strict");
-const {DEFAULTS,readSettings,signature,calculateRating,validateAlbum,attributedSongs,fingerprint,
+const {DEFAULTS,VERSION,readSettings,signature,calculateRating,validateAlbum,attributedSongs,fingerprint,
   resolveOwner,decideRating,ownerKey,encode,decode}=require("../src/plugin");
 const {fixture}=require("./helpers");
 function hist(...stars){const h=[0,0,0,0,0,0];for(const s of stars)h[s]++;return h;}
@@ -94,6 +94,7 @@ test("state encoding supports Unicode and ownership keys enforce the host byte l
 });
 test("manifest defaults, version, bounds, website and UI controls match runtime settings",()=>{
   const manifest=require("../manifest.json"),pkg=require("../package.json");
+  assert.equal(VERSION,manifest.version);
   assert.equal(manifest.version,pkg.version);assert.ok(manifest.website.startsWith("https://github.com/"));
   assert.equal(manifest.permissions.library.filesystem,false);assert.equal(manifest.config.schema.additionalProperties,false);
   const properties=manifest.config.schema.properties;

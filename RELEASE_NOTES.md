@@ -1,18 +1,14 @@
-# Automatic Ratings v0.1.0 — prototype
+# Automatic Ratings v0.1.1 — performance and snapshot clarity
 
-Initial combined plugin: calculate album and artist ratings independently from each user's song ratings. Song ratings and music files remain read-only.
+Large scans previously serialized the entire growing source snapshot for every target and reloaded it between chained batches. The worker now loads once per callback and encodes once per checkpoint, with incremental capacity reservations before writes.
 
-- Choose album-artist attribution (default) or structured performing-artist credits, including collaborations.
-- Independently enable outputs and configure quotas, minimum samples, weights, preservation/replacement, and clearing.
-- Preserve pre-existing ratings and detected manual overrides while refreshing this plugin's own output. Explicit replacement adopts matching results and validates changes before overwriting; there is no initial wipe.
-- Dry-run by default. Use stable JSON item events and compact per-user/run summaries with distributions and clear-path accounting. Detailed item events default to debug.
-- Intersect plugin library grants with each user's accessible libraries. Warn about empty scopes and inventories.
-- Revalidate source inventories and song/artist-credit snapshots before artist updates; incomplete sources defer artist writes.
-- Persist checkpoints, ownership and write intents; verify rating writes and recover interrupted operations. Serialize scheduler workers and support daily and latched manual requests.
-- Include grouped configuration UI, a repository website link, pinned CI toolchains, compiled-WASM smoke tests, and installable packages/checksums.
+- Avoid redundant artist source verification for wholly unrated users when no rating needs changing. Eligible clears still require complete verification; preserved ratings, ownership handling, item outcomes, and summary identities remain intact.
+- Report source read/verification times, rated-song counts, and explicit read-time semantics in summaries. Add progress events for unfinished callbacks. Verification compares song rating values as well as IDs and credits; changes after verification remain possible.
+- Explain structured collaboration credits and quota denominators, large-library capacity/runtime limits, verbose logging, migration, and configuration restart requirements.
+- Add regressions for checkpoint overhead, unrated users and clears, concurrent edits, Unicode capacity accounting, upgrades, and timestamp semantics. Include an optional reproducible native-Extism benchmark using fictional data.
 
-## Install safely
+## Upgrade
 
-This combined plugin has not yet been validated on a real Navidrome server. Automated tests and compiled-WASM smoke tests use simulated host functions and fictional data. Keep `dry_run=true`, grant users **and libraries**, and review the summaries before enabling writes. Disable older album/artist rating plugins before allowing this plugin to write.
+Replace the package and restart Navidrome. Old partial scan checkpoints are discarded; ownership records are retained. Request a fresh run. A latched `run_now=true` must be rearmed by letting the worker observe false before setting true again. On Navidrome 0.64.2, configuration/grant edits can require a container/server restart; verify the `enabled` event.
 
-Restart Navidrome after installation. Some versions also require a server/container restart after configuration/grant edits because plugins are unloaded without reinitialization. See [README.md](README.md) for manual-trigger rearming, migration, counter meanings, storage limits, and ownership limitations.
+Keep `dry_run=true` for the first run and review both summaries. The initial version was installation-tested in dry-run mode on Navidrome 0.64.2. This update is a prerelease; real-server write validation is still outstanding. Automated write/clear tests and benchmarks use fictional, in-memory data. Defaults and rating calculations are unchanged.

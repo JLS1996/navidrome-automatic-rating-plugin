@@ -223,6 +223,8 @@ test("one time budget spans chained batches and restart resumes both cursor and 
   h.before=(name,request)=>{if(name==="subsonicapi_call"&&request.uri.startsWith("getAlbum?"))h.clock+=2500;};
   let p=h.make(config);p.initialize();p.startRun();const first=p.onSchedule({payload:"worker"});
   assert.equal(first.active,true);assert.ok(h.clock>=21000);assert.equal(h.events("run_summary").length,0);
+  const progress=h.events("run_progress")[0];assert.ok(progress.units>0);assert.ok(progress.callbackMs>=20000);
+  assert.equal(progress.users,2);assert.ok(progress.scannedAlbums<=progress.totalAlbums);
   h.schedules.clear();p=h.make(config);p.initialize();let n=0;
   while(p.onSchedule({payload:"worker"}).active)assert.ok(++n<50);
   const total=h.events("run_summary")[0];assert.equal(total.albums.processed,8);assert.equal(total.artists.processed,4);
@@ -369,4 +371,92 @@ test("invalid nested checkpoints are rejected before any resumed target write",(
     assert.equal(p.onSchedule({payload:"worker"}).waiting,true);
     assert.equal(h.writes.length,before);assert.ok(h.events("state_reset").length>0);
   }
+});
+
+test("chained batches load one snapshot and serialize only at checkpoints",()=>{
+  const h=fixture(),original=JSON.stringify;
+  let snapshots=0;
+  JSON.stringify=function(value,...args){
+    if(value?.version===2&&value.totals&&Array.isArray(value.users))snapshots++;
+    return original.call(this,value,...args);
+  };
+  try{h.run({batch_size:1});}finally{JSON.stringify=original;}
+  const stateCalls=h.calls.filter(c=>c.request.key==="automatic-ratings:v1:scan");
+  const checkpoints=stateCalls.filter(c=>c.name==="kvstore_set").length;
+  assert.equal(stateCalls.filter(c=>c.name==="kvstore_get").length,2); // request + callback.
+  assert.ok(snapshots<=checkpoints+1,`${snapshots} full encodings for ${checkpoints} checkpoints`);
+  assert.ok(checkpoints>10);
+});
+test("an unrated user avoids source rechecks while retaining item outcomes and summaries",()=>{
+  const h=fixture({users:["example-unrated"]});h.run();
+  const summary=h.events("user_summary")[0];
+  assert.equal(summary.ratedSongs,0);assert.equal(summary.sourceVerified,false);
+  assert.equal(summary.sourceVerifiedAt,null);assert.equal(summary.sourceComplete,true);
+  assert.equal(summary.albums.processed,4);assert.equal(summary.artists.processed,2);
+  assertCounts(summary.albums);assertCounts(summary.artists);
+  assert.equal(h.calls.filter(c=>c.request.uri?.startsWith("getAlbum?")).length,4);
+  assert.equal(h.calls.filter(c=>c.request.uri?.startsWith("getAlbumList2?")).length,2);
+  assert.equal(h.events("user_unrated").length,1);assert.deepEqual(h.writes,[]);
+});
+test("unrated users still verify sources before clearing owned or replace-eligible artist ratings",()=>{
+  for(const dry_run of [true,false])for(const artist_rating_policy of ["preserve","replace"]){
+    const h=fixture({users:["example-unrated"]}),id="album-artist",u=h.users[0];
+    h.setRating(u,"artist",id,4);
+    if(artist_rating_policy==="preserve")h.storage.set(ownerKey(u,"artist",id),
+      encode({version:1,rating:4,manual:false,pending:null}));
+    h.run({dry_run,artist_rating_policy});
+    const summary=h.events("user_summary")[0];
+    assert.equal(summary.sourceVerified,true);assert.notEqual(summary.sourceVerifiedAt,null);
+    assert.equal(summary.artists.processed,2);assert.equal(summary.artists.cleared,1);
+    assert.equal(h.getRating(u,"artist",id),dry_run?4:0);assertCounts(summary.artists);
+    assert.ok(h.calls.filter(c=>c.request.uri?.startsWith("getAlbumList2?")).length>=4);
+  }
+});
+test("a newly rated song in an unrated source blocks a stale artist clear",()=>{
+  const h=fixture({users:["example-unrated"]}),u=h.users[0];let reads=0;
+  h.setRating(u,"artist","album-artist",4);
+  h.storage.set(ownerKey(u,"artist","album-artist"),encode({version:1,rating:4,manual:false,pending:null}));
+  h.before=(name,request)=>{
+    if(name==="subsonicapi_call"&&request.uri.startsWith("getAlbum?")&&request.uri.includes("id=album-a&")&&++reads===2)
+      h.trackRatings.set(JSON.stringify([u,"album-a-song-0"]),5);
+  };
+  h.run({dry_run:false});
+  assert.equal(h.getRating(u,"artist","album-artist"),4);
+  assert.equal(h.events("user_summary")[0].sourceComplete,false);
+  assert.equal(h.writes.some(w=>w.kind==="artist"),false);
+});
+test("Unicode snapshot growth is bounded before rating writes, including song and credit additions",()=>{
+  for(const part of ["inventory","songs","credits"]){
+    const h=fixture({users:[user]});h.albums=h.albums.slice(0,1);
+    if(part==="inventory")h.albums[0].name="漢".repeat(10000);
+    if(part==="songs")h.albums[0].songs=Array.from({length:20},(_,n)=>({
+      id:`${n}${"漢".repeat(900)}`,albumId:"album-a",userRating:5,artists:[ref("performer-one")]}));
+    if(part==="credits")h.albums[0].artists=Array.from({length:20},(_,n)=>ref(`artist-${n}`,"漢".repeat(900)));
+    const p=h.make({dry_run:false},{maxStateBytes:20000});p.initialize();p.startRun();
+    assert.throws(()=>p.onSchedule({payload:"worker"}),/state limit/);
+    assert.deepEqual(h.writes,[]);assert.equal(h.state().active,false);
+  }
+});
+test("upgrading an old checkpoint discards partial calculations and retains ownership",()=>{
+  const h=fixture(),key=ownerKey(user,"album","album-a"),value=encode({version:1,rating:5,manual:false,pending:null});
+  h.storage.set(key,value);h.storage.set("automatic-ratings:v1:scan",encode({version:1,active:true}));
+  const p=h.make({dry_run:false});p.initialize();assert.equal(p.onSchedule({payload:"worker"}).waiting,true);
+  assert.equal(h.storage.get(key),value);assert.equal(h.state().version,2);assert.deepEqual(h.writes,[]);
+  assert.equal(h.events("checkpoint_upgraded")[0].previousRunActive,true);
+});
+test("summary timestamps identify read-time ratings and the remaining post-verification race",()=>{
+  const h=fixture({users:[user]});let editedAt=null;
+  h.before=(name,request)=>{
+    h.clock++;
+    if(name==="subsonicapi_call"&&request.uri.startsWith("getArtist?")&&editedAt===null){
+      editedAt=h.clock;h.albums[0].songs[0].userRating=1;
+    }
+  };
+  h.run();const summary=counts(h),total=h.events("run_summary")[0];
+  assert.equal(summary.ratingsAsOf,"per_album_read_time");assert.equal(summary.sourceVerified,true);
+  assert.ok(summary.sourceReadStartedAt<=summary.sourceReadCompletedAt);
+  assert.ok(summary.sourceReadCompletedAt<=summary.sourceVerifiedAt);assert.ok(summary.sourceVerifiedAt<editedAt);
+  assert.equal(total.sourceReadStartedAt,summary.sourceReadStartedAt);
+  assert.equal(total.sourceReadCompletedAt,summary.sourceReadCompletedAt);
+  assert.equal(total.sourceVerifiedAt,summary.sourceVerifiedAt);
 });

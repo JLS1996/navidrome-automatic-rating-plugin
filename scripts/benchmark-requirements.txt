@@ -1,0 +1,5 @@
+extism==1.0.0
+extism-sys==1.41.0
+annotated-types==0.6.0
+cffi==1.17.1
+pycparser==3.12

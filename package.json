@@ -1,6 +1,6 @@
 {
   "name": "navidrome-automatic-rating-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Calculate per-user album and artist ratings directly from song ratings.",
   "license": "MIT",

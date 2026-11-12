@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 const PREFIX = "automatic-ratings:v1:";
 const STATE_KEY = PREFIX + "scan";
 const MANUAL_KEY = PREFIX + "manual";
@@ -12,6 +12,10 @@ const DAILY_ID = "automatic-ratings-daily";
 const BUDGET_MS = 20000;
 const PAGE_SIZE = 500;
 const MAX_STATE_BYTES = 24 * 1024 * 1024;
+// Reserve more than the maximum growth of all mutable counters/timestamps in
+// one unit. Collection growth is charged separately, without encoding the
+// entire snapshot for every target. Checkpoints reset this conservative bound.
+const UNIT_GROWTH_BYTES = 2048;
 const STAR_NAMES = ["one", "two", "three", "four", "five"];
 const DEFAULTS = {
   rate_albums: true, rate_artists: true, artist_attribution: "album_artist",
@@ -148,10 +152,11 @@ function validCounts(c) {
     c.processed === OUTCOMES.reduce((sum, key) => sum + c[key], 0) &&
     c.updated === c.ratingCounts.reduce((sum, n) => sum + n, 0) && c.cleared === c.ratingCounts[0];
 }
-function encode(value) {
-  return btoa(JSON.stringify(value).replace(/[\u007f-\uffff]/g,
-    ch => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`));
+function asciiJSON(value) {
+  return JSON.stringify(value).replace(/[\u007f-\uffff]/g,
+    ch => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
+function encode(value) { return btoa(asciiJSON(value)); }
 function decode(value) { return JSON.parse(atob(value)); }
 function ownerKey(user, kind, id) {
   // Host keys are limited to 256 UTF-8 bytes. Encode identifiers without leaking
@@ -197,6 +202,7 @@ function decideRating(result, current, owner, policy, clear) {
 }
 
 function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now(), maxStateBytes = MAX_STATE_BYTES }) {
+  let measuredState = null, reservedBytes = 0;
   function call(name, input = {}) {
     const response = host(name, input);
     if (!response || typeof response !== "object" || Array.isArray(response)) throw Error(`${name}: invalid response`);
@@ -242,21 +248,29 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     if (status.scanning) throw Error("Library scanner is active; retry after indexing finishes");
   }
   function freshState() {
-    return { version: 1, active: false, signature: "", startedAt: 0, completedAt: null,
+    return { version: 2, active: false, signature: "", startedAt: 0, completedAt: null,
       users: [], grants: [], userIndex: 0, current: null, usersCompleted: 0,
-      totals: { albums: emptyCounts(), artists: emptyCounts(), sourceErrors: 0, scannedSongs: 0 } };
+      sourceReadStartedAt: null, sourceReadCompletedAt: null, sourceVerifiedAt: null,
+      totals: { albums: emptyCounts(), artists: emptyCounts(), sourceErrors: 0, scannedSongs: 0, ratedSongs: 0 } };
   }
   function loadState() {
     let state;
     try {
       state = get(STATE_KEY);
       if (!state) return freshState();
-      if (state.version !== 1 || typeof state.active !== "boolean" || typeof state.signature !== "string" ||
+      if (state.version === 1) {
+        event("info", "checkpoint_upgraded", { action: "wait_for_new_request", previousRunActive: state.active === true,
+          reason: "snapshot_format_changed_ownership_retained" });
+        state = freshState(); put(STATE_KEY, state); return state;
+      }
+      if (state.version !== 2 || typeof state.active !== "boolean" || typeof state.signature !== "string" ||
           !Array.isArray(state.users) || state.users.some(u => !validId(u)) || !Array.isArray(state.grants) ||
           state.grants.some(id => !Number.isSafeInteger(id) || id < 1) ||
           !Number.isSafeInteger(state.userIndex) || state.userIndex < 0 || state.userIndex > state.users.length ||
           state.usersCompleted !== state.userIndex ||
-          ![state.startedAt, state.totals?.sourceErrors, state.totals?.scannedSongs].every(n => Number.isSafeInteger(n) && n >= 0) ||
+          ![state.startedAt, state.totals?.sourceErrors, state.totals?.scannedSongs, state.totals?.ratedSongs].every(n => Number.isSafeInteger(n) && n >= 0) ||
+          state.totals.ratedSongs > state.totals.scannedSongs ||
+          !validSourceTimes(state) ||
           (state.completedAt !== null && (!Number.isSafeInteger(state.completedAt) || state.completedAt < 0)) ||
           !validCounts(state.totals?.albums) || !validCounts(state.totals?.artists) ||
           (state.active && state.userIndex === state.users.length) ||
@@ -271,6 +285,10 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       return state;
     }
   }
+  function validSourceTimes(value) {
+    return [value.sourceReadStartedAt, value.sourceReadCompletedAt, value.sourceVerifiedAt].every(n =>
+      n === null || (Number.isSafeInteger(n) && n >= 0));
+  }
   function validCurrent(c) {
     const validAlbums = albums => Array.isArray(albums) && new Set(albums.map(a => a?.id)).size === albums.length &&
       albums.every(a => a && validId(a.id) && typeof a.name === "string" && Number.isSafeInteger(a.songCount) &&
@@ -278,7 +296,8 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     return c && validId(c.user) && ["inventory", "scan", "check_inventory", "verify", "artists"].includes(c.phase) &&
       Array.isArray(c.scope) && Array.isArray(c.albums) && Array.isArray(c.checkAlbums) &&
       c.scope.every(id => Number.isSafeInteger(id) && id > 0) && validAlbums(c.albums) && validAlbums(c.checkAlbums) &&
-      [c.startedAt, c.libraryIndex, c.offset, c.index, c.verifyIndex, c.artistIndex, c.sourceErrors, c.scannedSongs].every(n => Number.isSafeInteger(n) && n >= 0) &&
+      [c.startedAt, c.libraryIndex, c.offset, c.index, c.verifyIndex, c.artistIndex, c.sourceErrors, c.scannedSongs, c.ratedSongs].every(n => Number.isSafeInteger(n) && n >= 0) &&
+      c.ratedSongs <= c.scannedSongs && validSourceTimes(c) && typeof c.sourceVerified === "boolean" &&
       c.libraryIndex <= c.scope.length && c.index <= c.albums.length && c.verifyIndex <= c.albums.length &&
       validCounts(c.albumsSummary) && validCounts(c.artistsSummary) &&
       c.groups && typeof c.groups === "object" && !Array.isArray(c.groups) &&
@@ -292,16 +311,26 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       c.artistIds.every(key => Object.prototype.hasOwnProperty.call(c.groups, key)) &&
       typeof c.complete === "boolean" && (!c.complete || c.sources.every(s => s !== null));
   }
+  function storageLimit(state) {
+    event("error", "storage_limit", { action: "cancel_scan", reason: "Scan state capacity exhausted; no further ratings will be written" });
+    // Retain completed-run totals but discard the oversized partial snapshot.
+    state.active = false; state.current = null; state.completedAt = now();
+    put(STATE_KEY, state);
+    throw Error("Scan state limit exceeded; scan cancelled");
+  }
+  function measureState(state) {
+    measuredState = state; reservedBytes = asciiJSON(state).length;
+  }
+  function reserveState(state, bytes) {
+    if (measuredState !== state) measureState(state);
+    reservedBytes += bytes;
+    if (reservedBytes > maxStateBytes) storageLimit(state);
+  }
   function saveState(state) {
-    const value = encode(state);
-    if (value.length * 3 / 4 > maxStateBytes) {
-      event("error", "storage_limit", { action: "cancel_scan", reason: "Scan state exceeds the configured build limit; no artist ratings will be written" });
-      // Retain completed-run totals but discard the oversized partial snapshot.
-      state.active = false; state.current = null; state.completedAt = now();
-      put(STATE_KEY, state);
-      throw Error("Scan state limit exceeded; scan cancelled");
-    }
-    call("kvstore_set", { key: STATE_KEY, value });
+    const json = asciiJSON(state);
+    if (json.length > maxStateBytes) storageLimit(state);
+    call("kvstore_set", { key: STATE_KEY, value: btoa(json) });
+    measuredState = state; reservedBytes = json.length;
   }
   function cancel(state, reason) {
     state.active = false; state.current = null; state.completedAt = now();
@@ -343,7 +372,10 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     state.current = { user, scope, startedAt: now(), phase: "inventory", libraryIndex: 0, offset: 0,
       albums: [], checkAlbums: [], index: 0, verifyIndex: 0, artistIndex: 0,
       groups: {}, seenSongs: {}, sources: [], artistIds: [], complete: true,
-      sourceErrors: 0, scannedSongs: 0, albumsSummary: emptyCounts(), artistsSummary: emptyCounts() };
+      sourceErrors: 0, scannedSongs: 0, ratedSongs: 0, sourceVerified: false,
+      sourceReadStartedAt: null, sourceReadCompletedAt: null, sourceVerifiedAt: null,
+      albumsSummary: emptyCounts(), artistsSummary: emptyCounts() };
+    reserveState(state, asciiJSON(state.current).length);
     if (!scope.length) event("warn", "empty_scope", { user, reason: "no_accessible_granted_libraries" });
     else assertNotScanning(user);
   }
@@ -351,17 +383,25 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     const c = state.current;
     event("info", "user_summary", { user: c.user, albums: c.albumsSummary, artists: c.artistsSummary,
       sourceErrors: c.sourceErrors, sourceComplete: c.complete, scannedSongs: c.scannedSongs,
+      ratedSongs: c.ratedSongs, sourceVerified: c.sourceVerified, ...sourceTimes(c),
       dryRun: settings.dry_run, elapsedMs: Math.max(0, now() - c.startedAt) });
     addCounts(state.totals.albums, c.albumsSummary); addCounts(state.totals.artists, c.artistsSummary);
     state.totals.sourceErrors += c.sourceErrors; state.totals.scannedSongs += c.scannedSongs;
+    state.totals.ratedSongs += c.ratedSongs;
     state.usersCompleted++; state.userIndex++; state.current = null;
     if (state.userIndex === state.users.length) {
       state.active = false; state.completedAt = now();
       event("info", "run_summary", { users: state.usersCompleted, ...state.totals,
+        ...sourceTimes(state),
         dryRun: settings.dry_run, elapsedMs: Math.max(0, state.completedAt - state.startedAt) });
     }
   }
-  function inventoryPage(c, checking) {
+  function sourceTimes(value) {
+    return { ratingsAsOf: "per_album_read_time", sourceReadStartedAt: value.sourceReadStartedAt,
+      sourceReadCompletedAt: value.sourceReadCompletedAt, sourceVerifiedAt: value.sourceVerifiedAt };
+  }
+  function inventoryPage(state, checking) {
+    const c = state.current;
     const list = checking ? c.checkAlbums : c.albums;
     if (c.libraryIndex === c.scope.length) {
       list.sort((a, b) => compare(a.id, b.id));
@@ -390,6 +430,7 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       seen.add(album.id);
       list.push({ id: album.id, name: typeof album.name === "string" ? album.name : album.id,
         songCount: album.songCount, libraryId: c.scope[c.libraryIndex] });
+      reserveState(state, asciiJSON(list[list.length - 1]).length + 1);
     }
     c.offset += page.length;
     // Continue until an explicit empty page, including after short pages. This
@@ -418,9 +459,6 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     }
   }
   function processTarget(state, kind, item, histogram, current, settings, fresh) {
-    // Refuse rating writes if the in-memory source snapshot could no longer
-    // be checkpointed. Checking only at the end of a batch is too late.
-    if (encode(state).length * 3 / 4 > maxStateBytes) saveState(state);
     const c = state.current, summary = c[`${kind}sSummary`];
     const result = calculateFor(kind, histogram, settings);
     let decision, manualOverride = false, adopted = false;
@@ -429,8 +467,12 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       const resolved = resolveOwner(storedOwner, current);
       let owner = resolved.owner;
       manualOverride = resolved.manualOverride;
-      if (!settings.dry_run && storedOwner && JSON.stringify(owner) !== JSON.stringify(storedOwner)) put(key, owner);
       decision = decideRating(result, current, owner, settings[`${kind}_rating_policy`], settings[`${kind}_clear_below_threshold`]);
+      // A wholly unrated source needs no second pass for no-op decisions. An
+      // eligible clear/adoption still requires full inventory/source validation.
+      if (kind === "artist" && !c.sourceVerified && decision.target !== null &&
+          (decision.outcome === "updated" || settings.artist_rating_policy === "replace")) return { needsVerification: true };
+      if (!settings.dry_run && storedOwner && JSON.stringify(owner) !== JSON.stringify(storedOwner)) put(key, owner);
       if (decision.target !== null && (decision.outcome === "updated" || settings[`${kind}_rating_policy`] === "replace")) {
         const before = fresh();
         if (before !== current) throw Error("Rating changed concurrently; deferred");
@@ -468,11 +510,17 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     const c = state.current;
     if (c.index === c.albums.length) {
       c.artistIds = Object.keys(c.groups).sort(compare);
-      c.phase = settings.rate_artists ? "check_inventory" : "artists";
+      reserveState(state, asciiJSON(c.artistIds).length);
+      c.phase = settings.rate_artists && c.ratedSongs > 0 ? "check_inventory" : "artists";
       c.libraryIndex = 0; c.offset = 0;
+      if (c.complete && c.scannedSongs > 0 && c.ratedSongs === 0) event("warn", "user_unrated", {
+        user: c.user, reason: "no_rated_songs_in_scope", action: "skip_unused_artist_source_verification" });
       return;
     }
     const item = c.albums[c.index++];
+    const readStartedAt = now();
+    if (c.sourceReadStartedAt === null) c.sourceReadStartedAt = readStartedAt;
+    if (state.sourceReadStartedAt === null) state.sourceReadStartedAt = readStartedAt;
     let album, validated;
     try {
       album = api("getAlbum", c.user, { id: item.id }).album;
@@ -480,27 +528,40 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       for (const song of validated.songs) if (Object.prototype.hasOwnProperty.call(c.seenSongs, "id:" + song.id)) {
         throw Error("Song appears in multiple albums; source is inconsistent");
       }
-      for (const song of validated.songs) c.seenSongs["id:" + song.id] = true;
+      for (const song of validated.songs) {
+        reserveState(state, asciiJSON("id:" + song.id).length + 6);
+        c.seenSongs["id:" + song.id] = true;
+      }
       c.scannedSongs += validated.songs.length;
+      c.ratedSongs += validated.songs.length - validated.histogram[0];
+      c.sourceReadCompletedAt = now(); state.sourceReadCompletedAt = c.sourceReadCompletedAt;
     } catch (error) {
+      if (!state.active) throw error;
       c.complete = false; c.sourceErrors++; c.sources[c.index - 1] = null;
       const decision = { outcome: "failed", action: "failed", target: null, reason: "source_album_failed" };
       if (settings.rate_albums) countOutcome(c.albumsSummary, null, decision, false, false);
       itemEvent("album", item, c, null, null, decision, settings, error.message);
       return;
     }
+    let growth = 5;
     try {
       const attributed = attributedSongs(album, validated.songs, settings);
       c.sources[c.index - 1] = fingerprint(attributed);
+      growth += asciiJSON(c.sources[c.index - 1]).length + 1;
       for (const song of attributed) for (const artist of song.artists) {
         const key = "id:" + artist.id;
-        if (!Object.prototype.hasOwnProperty.call(c.groups, key)) c.groups[key] = { ...artist, histogram: emptyHistogram() };
+        if (!Object.prototype.hasOwnProperty.call(c.groups, key)) {
+          c.groups[key] = { ...artist, histogram: emptyHistogram() };
+          growth += asciiJSON(key).length + asciiJSON(c.groups[key]).length + 2;
+        }
+        growth += 16; // Worst-case decimal digit growth of a safe-integer bin.
         c.groups[key].histogram[song.rating]++;
       }
     } catch (error) {
       c.complete = false; c.sourceErrors++; c.sources[c.index - 1] = null;
       event("error", "artist_source_incomplete", { user: c.user, id: item.id, reason: error.message, action: "defer_artist_writes" });
     }
+    reserveState(state, growth);
     if (settings.rate_albums) {
       const original = JSON.stringify(validated.songs.map(song => [song.id, song.userRating]));
       processTarget(state, "album", item, validated.histogram, album.userRating, settings, () => {
@@ -511,8 +572,12 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       });
     }
   }
-  function verifySource(c, settings) {
-    if (c.verifyIndex === c.albums.length) { c.phase = "artists"; return; }
+  function verifySource(state, settings) {
+    const c = state.current;
+    if (c.verifyIndex === c.albums.length) {
+      c.phase = "artists"; c.sourceVerified = true; c.sourceVerifiedAt = now();
+      state.sourceVerifiedAt = c.sourceVerifiedAt; return;
+    }
     const i = c.verifyIndex++, item = c.albums[i];
     try {
       const album = api("getAlbum", c.user, { id: item.id }).album;
@@ -538,31 +603,36 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       const current = api("getArtist", c.user, { id: item.id }).artist;
       if (!current || current.id !== item.id) throw Error("Invalid artist response");
       const rating = starRating(current.userRating, !Object.prototype.hasOwnProperty.call(current, "userRating"));
-      processTarget(state, "artist", item, item.histogram, rating, settings, () => {
+      const outcome = processTarget(state, "artist", item, item.histogram, rating, settings, () => {
         const latest = api("getArtist", c.user, { id: item.id }).artist;
         if (!latest || latest.id !== item.id) throw Error("Invalid fresh artist response");
         return starRating(latest.userRating, !Object.prototype.hasOwnProperty.call(latest, "userRating"));
       });
+      if (outcome?.needsVerification) {
+        c.artistIndex--; c.phase = "check_inventory"; c.libraryIndex = 0; c.offset = 0;
+      }
     } catch (error) {
       const decision = { outcome: "failed", action: "failed", target: null, reason: "artist_read_failed" };
       countOutcome(c.artistsSummary, result, decision, false, false);
       itemEvent("artist", item, c, result, null, decision, settings, error.message);
     }
   }
-  function refresh(deadline = now() + BUDGET_MS) {
-    const settings = readSettings(readConfig), state = loadState();
+  function refresh(deadline = now() + BUDGET_MS, state = loadState()) {
+    const settings = readSettings(readConfig);
     if (!state.active) return { waiting: true };
     if (!checkContext(state, settings)) return { cancelled: true };
+    if (measuredState !== state) measureState(state);
     let units = 0;
     try {
       while (state.active && units < settings.batch_size && (units === 0 || now() < deadline)) {
+        reserveState(state, UNIT_GROWTH_BYTES);
         if (!state.current) beginUser(state);
         const c = state.current;
         if (!c.scope.length) finishUser(state, settings);
-        else if (c.phase === "inventory") inventoryPage(c, false);
+        else if (c.phase === "inventory") inventoryPage(state, false);
         else if (c.phase === "scan") scanAlbum(state, settings);
-        else if (c.phase === "check_inventory") inventoryPage(c, true);
-        else if (c.phase === "verify") verifySource(c, settings);
+        else if (c.phase === "check_inventory") inventoryPage(state, true);
+        else if (c.phase === "verify") verifySource(state, settings);
         else processArtist(state, settings);
         units++;
         if (state.active && state.signature !== signature(readSettings(readConfig))) {
@@ -627,20 +697,29 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     if (input?.payload !== "worker") throw Error("Unknown scheduler payload");
     try { call("scheduler_cancelschedule", { scheduleId: WORKER_ID }); }
     catch (error) { if (/schedule ID .* not found/.test(error.message)) return { busy: true }; throw error; }
-    const deadline = now() + BUDGET_MS;
+    const callbackStartedAt = now(), deadline = callbackStartedAt + BUDGET_MS;
     try {
       if (get(SCHEDULE_KEY) !== settings.run_time_utc) {
         scheduleDaily(settings, true);
         event("info", "schedule_updated", { runTimeUTC: settings.run_time_utc });
       }
       triggers(settings);
+      // Navidrome creates a fresh WASM instance per callback. Load/validate the
+      // persisted snapshot once, then reuse it across chained checkpoints.
+      const state = loadState();
       let batches = 0, units = 0;
       do {
-        const result = refresh(deadline);
+        const result = refresh(deadline, state);
         if (result.waiting || result.cancelled) return { ...result, batches, units };
         batches++; units += result.units;
         if (!result.active) return { batches, units, active: false };
       } while (now() < deadline);
+      event("info", "run_progress", { usersCompleted: state.usersCompleted, users: state.users.length,
+        user: state.current?.user ?? null, phase: state.current?.phase ?? "next_user",
+        scannedAlbums: state.current?.index ?? 0, verifiedAlbums: state.current?.verifyIndex ?? 0,
+        totalAlbums: state.current?.albums.length ?? 0, evaluatedArtists: state.current?.artistIndex ?? 0,
+        totalArtists: state.current?.artistIds.length ?? 0, batches, units,
+        callbackMs: Math.max(0, now() - callbackStartedAt) });
       return { batches, units, active: true };
     } finally { recurringWorker(settings); }
   }

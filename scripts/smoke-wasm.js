@@ -48,7 +48,16 @@ async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";a
   config.artist_attribution="performing_artist";
   await again(h,config);
   assert.equal(h.getRating("example-reader","artist","guest-artist"),5);
+  for(const album of h.albums)for(const song of album.songs)song.userRating=0;
+  config.album_rating_policy="preserve";config.artist_rating_policy="preserve";
+  await again(h,config);
+  assert.equal(h.getRating("example-reader","artist","guest-artist"),0);
+  assert.equal(h.getRating("example-reader","album","album-b"),0);
+  const lastUsers=h.events("user_summary").slice(-2);
+  assert.ok(lastUsers.every(e=>e.ratedSongs===0));
+  assert.equal(lastUsers[0].sourceVerified,true); // Owned clears require revalidation.
+  assert.equal(lastUsers[1].sourceVerified,false); // No-op user avoids the second pass.
   assert.equal(h.schedules.size,2);
   for(const[key,value]of h.storage)if(key.includes("owner:"))assert.equal(decode(value).pending,null);
-  console.log("Compiled WASM smoke passed: host imports, independent outputs, omission-as-zero, half-up rounding, dry-run isolation, latching across instances, ownership, manual overrides, clearing, performing credits, and scheduler rearming.");
+  console.log("Compiled WASM smoke passed: host imports, independent outputs, omission-as-zero, half-up rounding, dry-run isolation, latching across instances, ownership, manual overrides, clearing, performing credits, unrated-user verification, and scheduler rearming.");
 })().catch(error=>{console.error(error);process.exitCode=1;});
