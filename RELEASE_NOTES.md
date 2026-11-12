@@ -1,14 +1,17 @@
-# Automatic Ratings v0.1.1 — performance and snapshot clarity
+# Automatic Ratings v0.1.2 — safe unrated-user skips and independent verification
 
-Large scans previously serialized the entire growing source snapshot for every target and reloaded it between chained batches. The worker now loads once per callback and encodes once per checkpoint, with incremental capacity reservations before writes.
+A wholly unrated user can now skip per-album and per-artist evaluations after validated paginated song/artist reads, a rechecked album inventory, and ownership/target checks. Missing or changing data falls back to the full scan. Any enabled-output ownership history also forces a full scan so manual overrides, interrupted writes, and eligible clears retain their existing protections.
 
-- Avoid redundant artist source verification for wholly unrated users when no rating needs changing. Eligible clears still require complete verification; preserved ratings, ownership handling, item outcomes, and summary identities remain intact.
-- Report source read/verification times, rated-song counts, and explicit read-time semantics in summaries. Add progress events for unfinished callbacks. Verification compares song rating values as well as IDs and credits; changes after verification remain possible.
-- Explain structured collaboration credits and quota denominators, large-library capacity/runtime limits, verbose logging, migration, and configuration restart requirements.
-- Add regressions for checkpoint overhead, unrated users and clears, concurrent edits, Unicode capacity accounting, upgrades, and timestamp semantics. Include an optional reproducible native-Extism benchmark using fictional data.
+- Add `skip_unrated_users=true` by default, explicit skipped-user summaries, `usersSkipped`, and bulk-read diagnostics. Skipped users have zero processed items; reconciliation identities remain valid.
+- Fix fractional-weight half-star rounding. For example, weights 1.1 and 3.3 on 1-star and 3-star songs produce exactly 2.5 → 3. Exact ratios distinguish ties from nearby values without an arbitrary epsilon. Default integer-weight calculations retain their results.
+- Add optional `audit_logging=false` and an offline verifier. Audit mode captures normalized settings, raw structured album/song artist IDs and song ratings, and item outcomes. The standalone Python verifier independently reconstructs attribution, quotas, scores, targets, and summary counts using exact fractions.
+- Report current and peak snapshot sizes plus the conservative reservation peak and capacity limit. A small completed checkpoint does not represent peak active storage. Document that full snapshots still grow and large-library runtime is not guaranteed to scale linearly.
+- Keep detailed logging at debug by default and preserve the existing item-event schema. Public examples and tests use fictional data.
 
-## Upgrade
+## Upgrade and preview
 
-Replace the package and restart Navidrome. Old partial scan checkpoints are discarded; ownership records are retained. Request a fresh run. A latched `run_now=true` must be rearmed by letting the worker observe false before setting true again. On Navidrome 0.64.2, configuration/grant edits can require a container/server restart; verify the `enabled` event.
+Replace the package and restart Navidrome. Partial checkpoints from 0.1.0/0.1.1 are discarded; ownership records remain. Request a fresh dry run, rearming a previously latched `run_now` if needed. Configuration edits on Navidrome 0.64.2 can require another server/container restart.
 
-Keep `dry_run=true` for the first run and review both summaries. The initial version was installation-tested in dry-run mode on Navidrome 0.64.2. This update is a prerelease; real-server write validation is still outstanding. Automated write/clear tests and benchmarks use fictional, in-memory data. Defaults and rating calculations are unchanged.
+Leave `dry_run=true` for the first run. Use `skip_unrated_users=false` if you need every user's per-item outcomes. For an independent calculation check, enable `audit_logging=true`, capture one complete uninterrupted run, and execute `python3 scripts/verify-audit.py /path/to/local-audit.log`. Audit mode uses full scans and emits private source evidence at info level; keep that log local and disable audit logging afterward.
+
+This is a prerelease. Earlier versions were installation-tested in dry-run mode on Navidrome 0.64.2; real-server write validation remains outstanding. Automated tests and native-WASM checks exercise writes, clears, ownership, and the new fast-path fallbacks against fictional in-memory data.

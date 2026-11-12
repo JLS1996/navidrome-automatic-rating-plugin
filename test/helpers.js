@@ -11,7 +11,7 @@ function fixture(options = {}) {
   albums[1].songs[0].artists.push(ref("guest-artist"));
   const h = {albums, users:["example-reader","example-unrated"], grants:[1], folders:[1,2],
     storage:new Map(), schedules:new Map(), ratings:new Map(), trackRatings:new Map(), writes:[], calls:[], logs:[],
-    scanning:false, clock:1000, ...options};
+    scanning:false, clock:1000, configDefaults:{}, ...options};
   h.ratingKey = (user, kind, id) => JSON.stringify([user,kind,id]);
   h.getRating = (user, kind, id) => h.ratings.get(h.ratingKey(user,kind,id)) ?? 0;
   h.setRating = (user, kind, id, value) => h.ratings.set(h.ratingKey(user,kind,id),value);
@@ -21,6 +21,7 @@ function fixture(options = {}) {
     if (h.before) {const result=h.before(name,request); if(result !== undefined)return result;}
     let result;
     if (name === "kvstore_get") result=h.storage.has(request.key)?{exists:true,value:h.storage.get(request.key)}:{exists:false};
+    else if (name === "kvstore_list") {const keys=[...h.storage.keys()].filter(key=>key.startsWith(request.prefix)).sort();result=keys.length?{keys}:{};}
     else if (name === "kvstore_set") {
       if(Buffer.from(request.value,"base64").toString("base64")!==request.value)throw Error("Invalid base64 host value");
       h.storage.set(request.key,request.value); result={};
@@ -43,7 +44,24 @@ function fixture(options = {}) {
         if(!h.grants.includes(libraryId)||!h.folders.includes(libraryId))throw Error("Out-of-scope library request");
         const offset=Number(url.searchParams.get("offset")), size=Math.min(h.pageCap??500,Number(url.searchParams.get("size")));
         const selected=h.albums.filter(a=>a.libraryId===libraryId).sort((a,b)=>a.id<b.id?-1:1);
-        body.albumList2={album:selected.slice(offset,offset+size).map(a=>({id:a.id,name:a.name,songCount:a.songs.length}))};
+        body.albumList2={album:selected.slice(offset,offset+size).map(a=>({id:a.id,name:a.name,songCount:a.songs.length,
+          userRating:h.getRating(user,"album",a.id),artists:a.artists}))};
+      } else if(endpoint==="search3") {
+        const libraryId=Number(url.searchParams.get("musicFolderId"));
+        if(!h.grants.includes(libraryId)||!h.folders.includes(libraryId))throw Error("Out-of-scope bulk request");
+        const selected=h.albums.filter(a=>a.libraryId===libraryId);
+        const allSongs=selected.flatMap(a=>a.songs).sort((a,b)=>a.id<b.id?-1:1);
+        const allArtists=[...new Map(selected.flatMap(a=>[...a.artists,...a.songs.flatMap(s=>s.artists??[])])
+          .map(a=>[a.id,a])).values()].sort((a,b)=>a.id<b.id?-1:1);
+        const page=(list,kind)=>list.slice(Number(url.searchParams.get(kind+"Offset")),
+          Number(url.searchParams.get(kind+"Offset"))+Math.min(h.pageCap??500,Number(url.searchParams.get(kind+"Count"))));
+        body.searchResult3={song:page(allSongs,"song").map(original=>{
+          const song=structuredClone(original);
+          song.userRating=h.trackRatings.get(JSON.stringify([user,song.id]))??(user==="example-unrated"?0:original.userRating);
+          if(song.userRating===0)delete song.userRating;return song;
+        }),artist:page(allArtists,"artist").map(a=>{
+          const artist={...a},rating=h.getRating(user,"artist",a.id);if(rating)artist.userRating=rating;return artist;
+        })};
       } else if(endpoint==="getAlbum") {
         const a=h.albums.find(a=>a.id===id);
         if(!a)throw Error("Album not found");
@@ -75,7 +93,7 @@ function fixture(options = {}) {
   h.events = event => h.logs.map(([,line])=>JSON.parse(line.slice("Automatic Ratings: ".length)))
     .filter(e=>!event||e.event===event);
   h.state = () => decode(h.storage.get("automatic-ratings:v1:scan"));
-  h.make = (config={}, extra={}) => createPlugin({host:h.host,readConfig:key=>config[key],now:()=>h.clock,
+  h.make = (config={}, extra={}) => createPlugin({host:h.host,readConfig:key=>config[key]??h.configDefaults[key],now:()=>h.clock,
     log:(...args)=>h.logs.push(args),...extra});
   h.run = (config={}, extra={}) => {const plugin=h.make(config,extra);plugin.initialize();plugin.startRun();
     let result;let callbacks=0;

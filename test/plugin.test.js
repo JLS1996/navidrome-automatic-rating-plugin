@@ -1,6 +1,9 @@
 "use strict";
 const test=require("node:test"),assert=require("node:assert/strict");
-const {fixture,ref}=require("./helpers");
+const {fixture:makeFixture,ref}=require("./helpers");
+// Retain full-evaluation coverage for all original policies and safety paths.
+// The fast-path suite separately exercises production defaults and fallbacks.
+const fixture=options=>makeFixture({...options,configDefaults:{skip_unrated_users:false}});
 const {validCounts,ownerKey,encode,decode}=require("../src/plugin");
 const user="example-reader";
 function counts(h){return h.events("user_summary").find(e=>e.user===user);}
@@ -377,7 +380,7 @@ test("chained batches load one snapshot and serialize only at checkpoints",()=>{
   const h=fixture(),original=JSON.stringify;
   let snapshots=0;
   JSON.stringify=function(value,...args){
-    if(value?.version===2&&value.totals&&Array.isArray(value.users))snapshots++;
+    if(value?.version===3&&value.totals&&Array.isArray(value.users))snapshots++;
     return original.call(this,value,...args);
   };
   try{h.run({batch_size:1});}finally{JSON.stringify=original;}
@@ -441,7 +444,7 @@ test("upgrading an old checkpoint discards partial calculations and retains owne
   const h=fixture(),key=ownerKey(user,"album","album-a"),value=encode({version:1,rating:5,manual:false,pending:null});
   h.storage.set(key,value);h.storage.set("automatic-ratings:v1:scan",encode({version:1,active:true}));
   const p=h.make({dry_run:false});p.initialize();assert.equal(p.onSchedule({payload:"worker"}).waiting,true);
-  assert.equal(h.storage.get(key),value);assert.equal(h.state().version,2);assert.deepEqual(h.writes,[]);
+  assert.equal(h.storage.get(key),value);assert.equal(h.state().version,3);assert.deepEqual(h.writes,[]);
   assert.equal(h.events("checkpoint_upgraded")[0].previousRunActive,true);
 });
 test("summary timestamps identify read-time ratings and the remaining post-verification race",()=>{

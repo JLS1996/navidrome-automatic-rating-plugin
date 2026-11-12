@@ -12,5 +12,6 @@ declare module "extism:host" {
     scheduler_cancelschedule(ptr: I64): I64;
     kvstore_get(ptr: I64): I64;
     kvstore_set(ptr: I64): I64;
+    kvstore_list(ptr: I64): I64;
   }
 }

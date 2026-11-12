@@ -1,12 +1,13 @@
 "use strict";
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 const PREFIX = "automatic-ratings:v1:";
 const STATE_KEY = PREFIX + "scan";
 const MANUAL_KEY = PREFIX + "manual";
 const DAILY_KEY = PREFIX + "daily";
 const HANDLED_KEY = PREFIX + "daily-handled";
 const SCHEDULE_KEY = PREFIX + "schedule";
+const METRICS_KEY = PREFIX + "snapshot-metrics";
 const WORKER_ID = "automatic-ratings-worker";
 const DAILY_ID = "automatic-ratings-daily";
 const BUDGET_MS = 20000;
@@ -25,6 +26,7 @@ const DEFAULTS = {
   album_clear_below_threshold: true, artist_clear_below_threshold: true,
   dry_run: true, run_now: false, run_time_utc: "03:00",
   batch_size: 25, batch_interval_seconds: 10, detail_logging: "debug",
+  skip_unrated_users: true, audit_logging: false,
 };
 for (const kind of ["album", "artist"]) {
   STAR_NAMES.forEach((star, i) => { DEFAULTS[`${kind}_${star}_star_weight`] = i + 1; });
@@ -92,8 +94,29 @@ function calculateRating(histogram, { minimumRatedPercent = 30, minimumRatedSong
     sum += histogram[stars] * stars * weights[stars - 1];
     weight += histogram[stars] * weights[stars - 1];
   }
-  const score = meetsThreshold ? sum / weight : null;
-  return { score, rating: meetsThreshold ? Math.round(score) : 0, totalSongs, ratedSongs, unratedSongs,
+  let score = null, rating = 0;
+  if (meetsThreshold) {
+    if (weights.every(Number.isInteger) && Number.isSafeInteger(sum) && Number.isSafeInteger(weight)) {
+      score = sum / weight;
+      const remainder = sum % weight;
+      rating = (sum - remainder) / weight + (remainder >= weight / 2 ? 1 : 0);
+    } else {
+      // Decimal settings must not turn an exact half-star tie into a value just
+      // below it through binary floating-point arithmetic. Scale their decimal
+      // representations to integers and compare the rational value exactly.
+      const decimals = weights.map(w => String(w).split("."));
+      const places = Math.max(...decimals.map(parts => (parts[1] || "").length));
+      const scaled = decimals.map(parts => BigInt(parts[0] + (parts[1] || "").padEnd(places, "0")));
+      let numerator = 0n, denominator = 0n;
+      for (let stars = 1; stars <= 5; stars++) {
+        const weightedCount = BigInt(histogram[stars]) * scaled[stars - 1];
+        numerator += weightedCount * BigInt(stars); denominator += weightedCount;
+      }
+      score = Number(numerator) / Number(denominator);
+      rating = Number((2n * numerator + denominator) / (2n * denominator));
+    }
+  }
+  return { score, rating, totalSongs, ratedSongs, unratedSongs,
     requiredRatedSongs, meetsThreshold };
 }
 function calculateFor(kind, histogram, settings) {
@@ -203,6 +226,7 @@ function decideRating(result, current, owner, policy, clear) {
 
 function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now(), maxStateBytes = MAX_STATE_BYTES }) {
   let measuredState = null, reservedBytes = 0;
+  let metricsState = null, metrics = null;
   function call(name, input = {}) {
     const response = host(name, input);
     if (!response || typeof response !== "object" || Array.isArray(response)) throw Error(`${name}: invalid response`);
@@ -248,27 +272,31 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     if (status.scanning) throw Error("Library scanner is active; retry after indexing finishes");
   }
   function freshState() {
-    return { version: 2, active: false, signature: "", startedAt: 0, completedAt: null,
+    return { version: 3, active: false, signature: "", startedAt: 0, completedAt: null,
       users: [], grants: [], userIndex: 0, current: null, usersCompleted: 0,
-      sourceReadStartedAt: null, sourceReadCompletedAt: null, sourceVerifiedAt: null,
-      totals: { albums: emptyCounts(), artists: emptyCounts(), sourceErrors: 0, scannedSongs: 0, ratedSongs: 0 } };
+      sourceReadStartedAt: null, sourceReadCompletedAt: null, sourceVerifiedAt: null, sourceReadMode: "album",
+      totals: { albums: emptyCounts(), artists: emptyCounts(), sourceErrors: 0, scannedSongs: 0, ratedSongs: 0,
+        preflightSongs: 0, usersSkipped: 0 } };
   }
   function loadState() {
     let state;
     try {
       state = get(STATE_KEY);
       if (!state) return freshState();
-      if (state.version === 1) {
+      if (state.version === 1 || state.version === 2) {
         event("info", "checkpoint_upgraded", { action: "wait_for_new_request", previousRunActive: state.active === true,
           reason: "snapshot_format_changed_ownership_retained" });
         state = freshState(); put(STATE_KEY, state); return state;
       }
-      if (state.version !== 2 || typeof state.active !== "boolean" || typeof state.signature !== "string" ||
+      if (state.version !== 3 || typeof state.active !== "boolean" || typeof state.signature !== "string" ||
           !Array.isArray(state.users) || state.users.some(u => !validId(u)) || !Array.isArray(state.grants) ||
           state.grants.some(id => !Number.isSafeInteger(id) || id < 1) ||
           !Number.isSafeInteger(state.userIndex) || state.userIndex < 0 || state.userIndex > state.users.length ||
           state.usersCompleted !== state.userIndex ||
-          ![state.startedAt, state.totals?.sourceErrors, state.totals?.scannedSongs, state.totals?.ratedSongs].every(n => Number.isSafeInteger(n) && n >= 0) ||
+          ![state.startedAt, state.totals?.sourceErrors, state.totals?.scannedSongs, state.totals?.ratedSongs,
+            state.totals?.preflightSongs, state.totals?.usersSkipped].every(n => Number.isSafeInteger(n) && n >= 0) ||
+          state.totals.usersSkipped > state.usersCompleted ||
+          !["album", "song_pages", "mixed"].includes(state.sourceReadMode) ||
           state.totals.ratedSongs > state.totals.scannedSongs ||
           !validSourceTimes(state) ||
           (state.completedAt !== null && (!Number.isSafeInteger(state.completedAt) || state.completedAt < 0)) ||
@@ -293,11 +321,15 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     const validAlbums = albums => Array.isArray(albums) && new Set(albums.map(a => a?.id)).size === albums.length &&
       albums.every(a => a && validId(a.id) && typeof a.name === "string" && Number.isSafeInteger(a.songCount) &&
         a.songCount >= 0 && c.scope.includes(a.libraryId));
-    return c && validId(c.user) && ["inventory", "scan", "check_inventory", "verify", "artists"].includes(c.phase) &&
+    return c && validId(c.user) && ["inventory", "preflight", "preflight_check", "preflight_targets",
+      "scan", "check_inventory", "verify", "artists"].includes(c.phase) &&
       Array.isArray(c.scope) && Array.isArray(c.albums) && Array.isArray(c.checkAlbums) &&
       c.scope.every(id => Number.isSafeInteger(id) && id > 0) && validAlbums(c.albums) && validAlbums(c.checkAlbums) &&
-      [c.startedAt, c.libraryIndex, c.offset, c.index, c.verifyIndex, c.artistIndex, c.sourceErrors, c.scannedSongs, c.ratedSongs].every(n => Number.isSafeInteger(n) && n >= 0) &&
+      [c.startedAt, c.libraryIndex, c.offset, c.index, c.verifyIndex, c.artistIndex, c.sourceErrors, c.scannedSongs,
+        c.ratedSongs, c.preflightSongs].every(n => Number.isSafeInteger(n) && n >= 0) &&
       c.ratedSongs <= c.scannedSongs && validSourceTimes(c) && typeof c.sourceVerified === "boolean" &&
+      typeof c.skipped === "boolean" && (c.skipReason === null || typeof c.skipReason === "string") &&
+      ["album", "song_pages"].includes(c.sourceReadMode) && validPreflight(c) &&
       c.libraryIndex <= c.scope.length && c.index <= c.albums.length && c.verifyIndex <= c.albums.length &&
       validCounts(c.albumsSummary) && validCounts(c.artistsSummary) &&
       c.groups && typeof c.groups === "object" && !Array.isArray(c.groups) &&
@@ -311,25 +343,67 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       c.artistIds.every(key => Object.prototype.hasOwnProperty.call(c.groups, key)) &&
       typeof c.complete === "boolean" && (!c.complete || c.sources.every(s => s !== null));
   }
+  function validPreflight(c) {
+    const f = c.preflight;
+    if (f === null) return !c.phase.startsWith("preflight");
+    const object = x => x && typeof x === "object" && !Array.isArray(x);
+    const count = n => Number.isSafeInteger(n) && n >= 0;
+    return object(f) && [f.libraryIndex, f.songOffset, f.artistOffset, f.targetIndex, f.scannedSongs].every(count) &&
+      f.libraryIndex <= c.scope.length && typeof f.songsDone === "boolean" && typeof f.artistsDone === "boolean" &&
+      typeof f.ownershipChecked === "boolean" &&
+      [f.readStartedAt, f.readCompletedAt].every(n => n === null || count(n)) &&
+      object(f.counts) && Object.entries(f.counts).every(([key, n]) => key.startsWith("id:") && count(n)) &&
+      object(f.seenSongs) && Object.entries(f.seenSongs).every(([key, n]) => key.startsWith("id:") && n === true) &&
+      object(f.seenArtists) && Object.entries(f.seenArtists).every(([key, n]) => key.startsWith("lib:") && n === true) &&
+      object(f.artistRatings) && Object.entries(f.artistRatings).every(([key, n]) => key.startsWith("id:") && Number.isInteger(n) && n >= 0 && n <= 5) &&
+      object(f.expectedArtists) && Object.entries(f.expectedArtists).every(([key, n]) => key.startsWith("id:") && n === true) &&
+      Array.isArray(f.targets) && f.targetIndex <= f.targets.length && f.targets.every(t => t && validId(t.id) &&
+        ["album", "artist"].includes(t.kind) && Number.isInteger(t.rating) && t.rating > 0 && t.rating <= 5);
+  }
+  function freshMetrics(state) {
+    return { startedAt: state.startedAt, snapshotBytes: 0, peakSnapshotBytes: 0, peakReservedBytes: 0, snapshotLimitBytes: maxStateBytes };
+  }
+  function loadMetrics(state) {
+    if (metricsState === state) return;
+    metricsState = state; metrics = freshMetrics(state);
+    try {
+      const saved = get(METRICS_KEY);
+      if (saved && saved.startedAt === state.startedAt && Object.keys(metrics).every(key =>
+          Number.isSafeInteger(saved[key]) && saved[key] >= 0)) metrics = { ...saved, snapshotLimitBytes: maxStateBytes };
+    } catch (error) { event("warn", "snapshot_metrics_reset", { reason: error.message }); }
+  }
+  function snapshotMetrics(state) {
+    loadMetrics(state);
+    const { startedAt, ...sizes } = metrics;
+    return { ...sizes, snapshotMetricsScope: "run" };
+  }
   function storageLimit(state) {
-    event("error", "storage_limit", { action: "cancel_scan", reason: "Scan state capacity exhausted; no further ratings will be written" });
+    loadMetrics(state); metrics.peakReservedBytes = Math.max(metrics.peakReservedBytes, reservedBytes);
+    event("error", "storage_limit", { action: "cancel_scan", reason: "Scan state capacity exhausted; no further ratings will be written",
+      ...snapshotMetrics(state) });
     // Retain completed-run totals but discard the oversized partial snapshot.
     state.active = false; state.current = null; state.completedAt = now();
-    put(STATE_KEY, state);
+    put(METRICS_KEY, metrics); put(STATE_KEY, state);
     throw Error("Scan state limit exceeded; scan cancelled");
   }
   function measureState(state) {
+    loadMetrics(state);
     measuredState = state; reservedBytes = asciiJSON(state).length;
   }
   function reserveState(state, bytes) {
     if (measuredState !== state) measureState(state);
     reservedBytes += bytes;
+    metrics.peakReservedBytes = Math.max(metrics.peakReservedBytes, reservedBytes);
     if (reservedBytes > maxStateBytes) storageLimit(state);
   }
   function saveState(state) {
+    loadMetrics(state);
     const json = asciiJSON(state);
     if (json.length > maxStateBytes) storageLimit(state);
     call("kvstore_set", { key: STATE_KEY, value: btoa(json) });
+    metrics.snapshotBytes = json.length; metrics.peakSnapshotBytes = Math.max(metrics.peakSnapshotBytes, json.length);
+    metrics.peakReservedBytes = Math.max(metrics.peakReservedBytes, json.length);
+    put(METRICS_KEY, metrics);
     measuredState = state; reservedBytes = json.length;
   }
   function cancel(state, reason) {
@@ -352,8 +426,10 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     }
     state = freshState();
     Object.assign(state, { active: true, signature: sig, users, grants, startedAt: now() });
+    metricsState = state; metrics = freshMetrics(state);
     saveState(state);
     event("info", "run_started", { users: users.length, libraries: grants.length, dryRun: settings.dry_run });
+    if (settings.audit_logging) event("info", "audit_config", { settings, sourceFormat: "structured_song_ratings_v1" });
     return { started: true };
   }
   function checkContext(state, settings) {
@@ -372,7 +448,8 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     state.current = { user, scope, startedAt: now(), phase: "inventory", libraryIndex: 0, offset: 0,
       albums: [], checkAlbums: [], index: 0, verifyIndex: 0, artistIndex: 0,
       groups: {}, seenSongs: {}, sources: [], artistIds: [], complete: true,
-      sourceErrors: 0, scannedSongs: 0, ratedSongs: 0, sourceVerified: false,
+      sourceErrors: 0, scannedSongs: 0, ratedSongs: 0, sourceVerified: false, preflightSongs: 0,
+      preflight: null, skipped: false, skipReason: null, sourceReadMode: "album",
       sourceReadStartedAt: null, sourceReadCompletedAt: null, sourceVerifiedAt: null,
       albumsSummary: emptyCounts(), artistsSummary: emptyCounts() };
     reserveState(state, asciiJSON(state.current).length);
@@ -381,31 +458,47 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
   }
   function finishUser(state, settings) {
     const c = state.current;
+    // Measure/checkpoint the full working state before discarding it. The small
+    // completed checkpoint must not be mistaken for the active snapshot peak.
+    saveState(state);
     event("info", "user_summary", { user: c.user, albums: c.albumsSummary, artists: c.artistsSummary,
       sourceErrors: c.sourceErrors, sourceComplete: c.complete, scannedSongs: c.scannedSongs,
       ratedSongs: c.ratedSongs, sourceVerified: c.sourceVerified, ...sourceTimes(c),
+      skipped: c.skipped, skipReason: c.skipReason, preflightSongs: c.preflightSongs, ...snapshotMetrics(state),
       dryRun: settings.dry_run, elapsedMs: Math.max(0, now() - c.startedAt) });
     addCounts(state.totals.albums, c.albumsSummary); addCounts(state.totals.artists, c.artistsSummary);
     state.totals.sourceErrors += c.sourceErrors; state.totals.scannedSongs += c.scannedSongs;
     state.totals.ratedSongs += c.ratedSongs;
+    state.totals.preflightSongs += c.preflightSongs;
+    if (c.skipped) state.totals.usersSkipped++;
     state.usersCompleted++; state.userIndex++; state.current = null;
     if (state.userIndex === state.users.length) {
       state.active = false; state.completedAt = now();
+      saveState(state);
       event("info", "run_summary", { users: state.usersCompleted, ...state.totals,
         ...sourceTimes(state),
+        ...snapshotMetrics(state),
         dryRun: settings.dry_run, elapsedMs: Math.max(0, state.completedAt - state.startedAt) });
     }
   }
   function sourceTimes(value) {
-    return { ratingsAsOf: "per_album_read_time", sourceReadStartedAt: value.sourceReadStartedAt,
+    return { ratingsAsOf: value.sourceReadMode === "album" ? "per_album_read_time" :
+      value.sourceReadMode === "song_pages" ? "per_song_page_read_time" : "per_source_read_time",
+      sourceReadMode: value.sourceReadMode, sourceReadStartedAt: value.sourceReadStartedAt,
       sourceReadCompletedAt: value.sourceReadCompletedAt, sourceVerifiedAt: value.sourceVerifiedAt };
   }
-  function inventoryPage(state, checking) {
+  function inventoryPage(state, checking, settings) {
     const c = state.current;
     const list = checking ? c.checkAlbums : c.albums;
     if (c.libraryIndex === c.scope.length) {
       list.sort((a, b) => compare(a.id, b.id));
       if (checking) {
+        if (c.phase === "preflight_check") {
+          if (preflightInventorySignature(c.albums, settings) !== preflightInventorySignature(list, settings)) {
+            c.albums = list; fallbackPreflight(c, "inventory_or_target_ratings_changed");
+          } else { c.checkAlbums = []; c.phase = "preflight_targets"; }
+          return;
+        }
         if (inventorySignature(list) !== inventorySignature(c.albums)) {
           c.complete = false; c.sourceErrors++;
           event("warn", "artist_source_incomplete", { user: c.user, reason: "album_inventory_changed", action: "defer_artist_writes" });
@@ -414,6 +507,7 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       } else {
         c.phase = "scan";
         if (!list.length) event("warn", "empty_inventory", { user: c.user, reason: "no_visible_albums_check_grants_and_scan_status" });
+        else if (settings.skip_unrated_users && !settings.audit_logging) beginPreflight(state, settings);
       }
       return;
     }
@@ -428,8 +522,14 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
         throw Error("Invalid or duplicate album in inventory; library may be changing");
       }
       seen.add(album.id);
-      list.push({ id: album.id, name: typeof album.name === "string" ? album.name : album.id,
-        songCount: album.songCount, libraryId: c.scope[c.libraryIndex] });
+      const entry = { id: album.id, name: typeof album.name === "string" ? album.name : album.id,
+        songCount: album.songCount, libraryId: c.scope[c.libraryIndex] };
+      if (c.phase === "preflight_check" || !checking && settings.skip_unrated_users && !settings.audit_logging) {
+        entry.rating = Number.isInteger(album.userRating) && album.userRating >= 0 && album.userRating <= 5 ? album.userRating : null;
+        try { entry.artistIds = album.songCount ? credits(album.artists).map(a => a.id) : []; }
+        catch (_) { entry.artistIds = null; }
+      }
+      list.push(entry);
       reserveState(state, asciiJSON(list[list.length - 1]).length + 1);
     }
     c.offset += page.length;
@@ -438,6 +538,157 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     if (!page.length) { c.libraryIndex++; c.offset = 0; }
   }
   function inventorySignature(albums) { return JSON.stringify(albums.map(a => [a.id, a.songCount, a.libraryId])); }
+  function preflightInventorySignature(albums, settings) {
+    return JSON.stringify(albums.map(a => [a.id, a.songCount, a.libraryId,
+      settings.rate_albums && settings.album_clear_below_threshold ? a.rating : null,
+      settings.rate_artists && settings.artist_clear_below_threshold && settings.artist_attribution === "album_artist" ? a.artistIds : null]));
+  }
+  function fallbackPreflight(c, reason) {
+    c.preflight = null; c.phase = "scan"; c.libraryIndex = 0; c.offset = 0; c.checkAlbums = [];
+    for (const album of c.albums) { delete album.rating; delete album.artistIds; }
+    event("debug", "preflight_fallback", { user: c.user, reason, action: "full_album_scan" });
+  }
+  function beginPreflight(state, settings) {
+    const c = state.current;
+    if (!c.albums.some(a => a.songCount > 0)) return;
+    const needArtists = settings.rate_artists && settings.artist_clear_below_threshold;
+    const f = { libraryIndex: 0, songOffset: 0, artistOffset: 0, songsDone: false, artistsDone: !needArtists,
+      counts: {}, seenSongs: {}, seenArtists: {}, artistRatings: {}, expectedArtists: {},
+      targets: [], targetIndex: 0, ownershipChecked: false, scannedSongs: 0, readStartedAt: null, readCompletedAt: null };
+    try {
+      for (const album of c.albums) {
+        if (settings.rate_albums && settings.album_clear_below_threshold &&
+            (!Number.isInteger(album.rating) || album.rating < 0 || album.rating > 5)) {
+          throw Error("Album inventory ratings are unavailable");
+        }
+        f.counts["id:" + album.id] = 0;
+        if (needArtists && album.songCount && settings.artist_attribution === "album_artist") {
+          if (!Array.isArray(album.artistIds) || !album.artistIds.length || album.artistIds.some(id => !validId(id))) throw Error("Album inventory credits are unavailable");
+          for (const id of album.artistIds) f.expectedArtists["id:" + id] = true;
+        }
+      }
+    } catch (error) { fallbackPreflight(c, error.message); return; }
+    c.preflight = f; c.phase = "preflight";
+    reserveState(state, asciiJSON(f).length);
+  }
+  function preflightPage(state, settings) {
+    const c = state.current, f = c.preflight;
+    const needArtists = settings.rate_artists && settings.artist_clear_below_threshold;
+    try {
+      if (f.libraryIndex === c.scope.length) {
+        const expected = c.albums.reduce((sum, a) => sum + a.songCount, 0);
+        if (expected !== f.scannedSongs || Object.keys(f.seenSongs).length !== expected ||
+            c.albums.some(a => f.counts["id:" + a.id] !== a.songCount)) throw Error("Bulk song inventory is incomplete");
+        if (needArtists && Object.keys(f.expectedArtists).some(key => !Object.prototype.hasOwnProperty.call(f.artistRatings, key))) {
+          throw Error("Bulk artist inventory is incomplete");
+        }
+        if (settings.rate_albums && settings.album_clear_below_threshold) for (const album of c.albums) {
+          if (album.songCount && album.rating > 0) f.targets.push({ kind: "album", id: album.id, rating: album.rating });
+        }
+        if (needArtists) for (const key of Object.keys(f.expectedArtists)) {
+          if (f.artistRatings[key] > 0) f.targets.push({ kind: "artist", id: key.slice(3), rating: f.artistRatings[key] });
+        }
+        reserveState(state, asciiJSON(f.targets).length);
+        c.phase = "preflight_check"; c.libraryIndex = 0; c.offset = 0;
+        return;
+      }
+      const libraryId = c.scope[f.libraryIndex];
+      const startedAt = now();
+      const result = api("search3", c.user, { query: '""', musicFolderId: libraryId,
+        songCount: f.songsDone ? 0 : PAGE_SIZE, songOffset: f.songOffset,
+        artistCount: f.artistsDone ? 0 : PAGE_SIZE, artistOffset: f.artistOffset, albumCount: 0 }).searchResult3;
+      if (!result || typeof result !== "object" || Array.isArray(result) ||
+          !Array.isArray(result.song ?? []) || !Array.isArray(result.artist ?? [])) throw Error("Invalid bulk search response");
+      const songs = result.song ?? [], artists = result.artist ?? [];
+      if (songs.length > PAGE_SIZE || artists.length > PAGE_SIZE || (f.songsDone && songs.length) ||
+          (f.artistsDone && artists.length)) throw Error("Invalid bulk search pagination");
+      c.preflightSongs += songs.length;
+      if (f.readStartedAt === null) f.readStartedAt = startedAt;
+      const scopedAlbums = new Map(c.albums.filter(a => a.libraryId === libraryId).map(a => [a.id, a]));
+      let growth = 0;
+      for (const song of songs) {
+        if (!song || !validId(song.id) || !scopedAlbums.has(song.albumId) || song.isDir === true ||
+            Object.prototype.hasOwnProperty.call(f.seenSongs, "id:" + song.id)) throw Error("Invalid, duplicate, or out-of-scope bulk song");
+        const rating = starRating(song.userRating, !Object.prototype.hasOwnProperty.call(song, "userRating"));
+        if (rating > 0) { fallbackPreflight(c, "rated_song_found"); return; }
+        f.seenSongs["id:" + song.id] = true; f.counts["id:" + song.albumId]++; f.scannedSongs++;
+        growth += asciiJSON("id:" + song.id).length + 22;
+        if (needArtists && settings.artist_attribution === "performing_artist") for (const artist of credits(song.artists)) {
+          const key = "id:" + artist.id;
+          if (!Object.prototype.hasOwnProperty.call(f.expectedArtists, key)) {
+            f.expectedArtists[key] = true; growth += asciiJSON(key).length + 6;
+          }
+        }
+      }
+      if (songs.length) f.readCompletedAt = now();
+      for (const artist of artists) {
+        if (!artist || !validId(artist.id)) throw Error("Invalid bulk artist");
+        const rating = starRating(artist.userRating, !Object.prototype.hasOwnProperty.call(artist, "userRating"));
+        const key = "id:" + artist.id, seenKey = `lib:${libraryId}:${key}`;
+        if (Object.prototype.hasOwnProperty.call(f.seenArtists, seenKey) ||
+            Object.prototype.hasOwnProperty.call(f.artistRatings, key) && f.artistRatings[key] !== rating) throw Error("Bulk artist inventory changed");
+        f.seenArtists[seenKey] = true; growth += asciiJSON(seenKey).length + 6;
+        if (!Object.prototype.hasOwnProperty.call(f.artistRatings, key)) growth += asciiJSON(key).length + 3;
+        f.artistRatings[key] = rating;
+      }
+      reserveState(state, growth);
+      f.songOffset += songs.length; f.artistOffset += artists.length;
+      if (!songs.length) f.songsDone = true;
+      if (!artists.length) f.artistsDone = true;
+      if (f.songsDone && f.artistsDone) {
+        f.libraryIndex++; f.songOffset = 0; f.artistOffset = 0; f.songsDone = false; f.artistsDone = !needArtists;
+      }
+    } catch (error) {
+      if (!state.active) throw error;
+      fallbackPreflight(c, error.message);
+    }
+  }
+  function preflightTarget(state, settings) {
+    const c = state.current, f = c.preflight;
+    if (!f.ownershipChecked) {
+      try {
+        const prefix = PREFIX + "owner:" + JSON.stringify([c.user]).slice(0, -1) + ",";
+        const listed = call("kvstore_list", { prefix });
+        // Navidrome omits an empty keys slice, just like its other omitempty
+        // collections. Explicit malformed values must still fall back.
+        const keys = Object.prototype.hasOwnProperty.call(listed, "keys") ? listed.keys : [];
+        if (!Array.isArray(keys)) throw Error("Ownership inventory is unavailable");
+        for (const key of keys) {
+          if (typeof key !== "string" || !key.startsWith(prefix)) throw Error("Invalid ownership inventory");
+          const tuple = JSON.parse(key.slice((PREFIX + "owner:").length));
+          if (!Array.isArray(tuple) || tuple.length !== 3 || tuple[0] !== c.user ||
+              !["album", "artist"].includes(tuple[1]) || !validId(tuple[2])) throw Error("Invalid ownership key");
+          if (settings[`rate_${tuple[1]}s`]) {
+            // Even a currently zero target may be a newly observed manual
+            // override or an interrupted write. Do not skip that evidence.
+            fallbackPreflight(c, "ownership_history_requires_full_evaluation"); return;
+          }
+        }
+        f.ownershipChecked = true;
+      } catch (error) { fallbackPreflight(c, error.message); }
+      return;
+    }
+    if (f.targetIndex < f.targets.length) {
+      const target = f.targets[f.targetIndex++];
+      try {
+        const owner = resolveOwner(get(ownerKey(c.user, target.kind, target.id)), target.rating).owner;
+        if (settings[`${target.kind}_rating_policy`] === "replace" || owner && !owner.manual && owner.rating !== null) {
+          fallbackPreflight(c, "existing_rating_requires_full_evaluation");
+        }
+      } catch (error) { fallbackPreflight(c, error.message); }
+      return;
+    }
+    if (!checkContext(state, readSettings(readConfig))) return;
+    assertNotScanning(c.user);
+    c.skipped = true; c.skipReason = "no_rated_songs_or_eligible_clears"; c.scannedSongs = f.scannedSongs;
+    c.sourceReadMode = "song_pages"; c.sourceReadStartedAt = f.readStartedAt; c.sourceReadCompletedAt = f.readCompletedAt;
+    state.sourceReadMode = state.sourceReadStartedAt === null || state.sourceReadMode === "song_pages" ? "song_pages" : "mixed";
+    state.sourceReadStartedAt = state.sourceReadStartedAt === null ? f.readStartedAt : Math.min(state.sourceReadStartedAt, f.readStartedAt);
+    state.sourceReadCompletedAt = Math.max(state.sourceReadCompletedAt ?? 0, f.readCompletedAt ?? 0);
+    event("warn", "user_skipped", { user: c.user, reason: c.skipReason, scannedSongs: c.scannedSongs,
+      action: "skip_item_evaluations", sourceReadMode: c.sourceReadMode });
+    finishUser(state, settings);
+  }
   function itemEvent(kind, item, c, result, current, decision, settings, error = null) {
     const data = { action: decision.action, kind, user: c.user, id: item.id, name: item.name,
       existingRating: current, proposedRating: decision.target, score: result?.score ?? null,
@@ -445,7 +696,7 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       unratedSongs: result?.unratedSongs ?? null, requiredRatedSongs: result?.requiredRatedSongs ?? null,
       meetsThreshold: result?.meetsThreshold ?? null, dryRun: settings.dry_run,
       reason: decision.reason, error };
-    const level = decision.action === "failed" ? "error" : settings.detail_logging;
+    const level = decision.action === "failed" ? "error" : settings.audit_logging ? "info" : settings.detail_logging;
     if (level !== "off") event(level, "item", data);
   }
   function countOutcome(summary, result, decision, manualOverride, adopted) {
@@ -520,7 +771,8 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     const item = c.albums[c.index++];
     const readStartedAt = now();
     if (c.sourceReadStartedAt === null) c.sourceReadStartedAt = readStartedAt;
-    if (state.sourceReadStartedAt === null) state.sourceReadStartedAt = readStartedAt;
+    if (state.sourceReadStartedAt === null) { state.sourceReadStartedAt = readStartedAt; state.sourceReadMode = "album"; }
+    else if (state.sourceReadMode !== "album") state.sourceReadMode = "mixed";
     let album, validated;
     try {
       album = api("getAlbum", c.user, { id: item.id }).album;
@@ -543,9 +795,9 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       itemEvent("album", item, c, null, null, decision, settings, error.message);
       return;
     }
-    let growth = 5;
+    let growth = 5, attributed = null;
     try {
-      const attributed = attributedSongs(album, validated.songs, settings);
+      attributed = attributedSongs(album, validated.songs, settings);
       c.sources[c.index - 1] = fingerprint(attributed);
       growth += asciiJSON(c.sources[c.index - 1]).length + 1;
       for (const song of attributed) for (const artist of song.artists) {
@@ -562,6 +814,12 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       event("error", "artist_source_incomplete", { user: c.user, id: item.id, reason: error.message, action: "defer_artist_writes" });
     }
     reserveState(state, growth);
+    if (settings.audit_logging) event("info", "source_album", { user: c.user, albumId: item.id,
+      attribution: settings.artist_attribution, artistSourceComplete: attributed !== null,
+      readStartedAt, readCompletedAt: c.sourceReadCompletedAt,
+      albumArtistIds: Array.isArray(album.artists) ? album.artists.map(a => a?.id ?? null) : null,
+      songs: validated.songs.map(song => [song.id, song.userRating,
+        Array.isArray(song.artists) ? song.artists.map(a => a?.id ?? null) : null]) });
     if (settings.rate_albums) {
       const original = JSON.stringify(validated.songs.map(song => [song.id, song.userRating]));
       processTarget(state, "album", item, validated.histogram, album.userRating, settings, () => {
@@ -629,9 +887,12 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
         if (!state.current) beginUser(state);
         const c = state.current;
         if (!c.scope.length) finishUser(state, settings);
-        else if (c.phase === "inventory") inventoryPage(state, false);
+        else if (c.phase === "inventory") inventoryPage(state, false, settings);
+        else if (c.phase === "preflight") preflightPage(state, settings);
+        else if (c.phase === "preflight_check") inventoryPage(state, true, settings);
+        else if (c.phase === "preflight_targets") preflightTarget(state, settings);
         else if (c.phase === "scan") scanAlbum(state, settings);
-        else if (c.phase === "check_inventory") inventoryPage(state, true);
+        else if (c.phase === "check_inventory") inventoryPage(state, true, settings);
         else if (c.phase === "verify") verifySource(state, settings);
         else processArtist(state, settings);
         units++;
@@ -719,6 +980,7 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
         scannedAlbums: state.current?.index ?? 0, verifiedAlbums: state.current?.verifyIndex ?? 0,
         totalAlbums: state.current?.albums.length ?? 0, evaluatedArtists: state.current?.artistIndex ?? 0,
         totalArtists: state.current?.artistIds.length ?? 0, batches, units,
+        preflightSongs: state.current?.preflightSongs ?? 0, ...snapshotMetrics(state),
         callbackMs: Math.max(0, now() - callbackStartedAt) });
       return { batches, units, active: true };
     } finally { recurringWorker(settings); }

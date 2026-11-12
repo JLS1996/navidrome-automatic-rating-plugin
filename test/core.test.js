@@ -18,6 +18,15 @@ test("both sample-size and percentage requirements apply, including zero percent
   assert.equal(calculateRating(hist(5),{minimumRatedSongs:2}).meetsThreshold,false);
   assert.equal(calculateRating(hist()).score,null);
 });
+test("fractional weights round exact half-stars up without promoting values below the tie",()=>{
+  for(const [one,three]of[[1.1,3.3],[1.6,4.8],[2.2,6.6],[2.7,8.1],[2.9,8.7],[3.2,9.6]]){
+    const r=calculateRating(hist(1,3),{weights:[one,1,three,1,1]});
+    assert.equal(r.rating,3);assert.equal(r.score,2.5);
+  }
+  assert.equal(calculateRating(hist(1,3),{weights:[1.1,1,3.2999999999999994,1,1]}).rating,2);
+  assert.equal(calculateRating(hist(1,3),{weights:[1.1,1,3.3000000000000007,1,1]}).rating,3);
+  assert.equal(calculateRating([0,1000000000000000,0,2999999999999999,0,0],{weights:[1,1,1,1,1]}).rating,2);
+});
 test("invalid histograms, quotas and weights are rejected",()=>{
   for(const h of [null,[],[0,0,0,0,0,-1],[0,0,0,0,0,0.5],[0,0,0,0,0,Infinity]])assert.throws(()=>calculateRating(h));
   for(const options of [{minimumRatedSongs:0},{minimumRatedPercent:101},{minimumRatedPercent:3.5},

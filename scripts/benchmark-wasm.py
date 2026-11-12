@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 import extism
 
 
-def benchmark(wasm, album_count, batch_size, write):
+def benchmark(wasm, album_count, batch_size, write, full_scan):
     users = ["example-reader", "example-unrated"]
     storage, schedules, ratings = {}, {}, {}
     calls = collections.Counter()
@@ -35,6 +35,8 @@ def benchmark(wasm, album_count, batch_size, write):
         key = request.get("key")
         if name == "kvstore_get":
             return {"exists": key in storage, "value": storage.get(key, "")}
+        if name == "kvstore_list":
+            return {"keys": sorted(k for k in storage if k.startswith(request["prefix"]))}
         if name == "kvstore_set":
             storage[key] = request["value"]
             if key.endswith(":scan"):
@@ -69,8 +71,18 @@ def benchmark(wasm, album_count, batch_size, write):
         elif endpoint == "getAlbumList2":
             assert params["musicFolderId"] == "1"
             offset, size = int(params["offset"]), int(params["size"])
-            body = {"albumList2": {"album": [{k: a[k] for k in ("id", "name", "songCount")}
+            body = {"albumList2": {"album": [{**{k: a[k] for k in ("id", "name", "songCount", "artists")},
+                "userRating": ratings.get((user, a["id"]), 0)}
                 for a in list(albums.values())[offset:offset+size]]}}
+        elif endpoint == "search3":
+            assert params["musicFolderId"] == "1" and params["query"] == '""'
+            song_offset, song_count = int(params["songOffset"]), int(params["songCount"])
+            artist_offset, artist_count = int(params["artistOffset"]), int(params["artistCount"])
+            songs = [s for a in albums.values() for s in a["song"]][song_offset:song_offset+song_count]
+            body = {"searchResult3": {
+                "song": [{k: v for k, v in song.items() if k != "userRating" or (user == users[0] and v)} for song in songs],
+                "artist": [{**a, "userRating": ratings.get((user, a["id"]), 0)}
+                    for a in list(artists.values())[artist_offset:artist_offset+artist_count]]}}
         elif endpoint == "getAlbum":
             album = {**albums[entity_id], "userRating": ratings.get((user, entity_id), 0)}
             album["song"] = [{k: v for k, v in song.items() if k != "userRating" or (user == users[0] and v)}
@@ -92,10 +104,10 @@ def benchmark(wasm, album_count, batch_size, write):
             return json.dumps(host(name, json.loads(request)))
         return extism.host_fn(name=name)(invoke)
 
-    names = ["kvstore_get", "kvstore_set", "users_getusers", "library_getalllibraries",
+    names = ["kvstore_get", "kvstore_set", "kvstore_list", "users_getusers", "library_getalllibraries",
         "scheduler_schedulerecurring", "scheduler_cancelschedule", "subsonicapi_call"]
     config = {"run_now": "true", "detail_logging": "off", "batch_size": str(batch_size),
-        "dry_run": "false" if write else "true"}
+        "dry_run": "false" if write else "true", "skip_unrated_users": "false" if full_scan else "true"}
 
     def invoke(name, value=""):
         nonlocal call_seconds, compilation_seconds
@@ -116,13 +128,18 @@ def benchmark(wasm, album_count, batch_size, write):
             break
         assert callbacks < 1000, "Run did not finish"
     totals = state["totals"]
-    assert totals["sourceErrors"] == 0 and totals["albums"]["processed"] == 2*album_count
-    assert totals["artists"]["processed"] == 2*min(album_count, 16)
+    if state["version"] >= 3:
+        assert totals["usersSkipped"] == (0 if full_scan else 1)
+        metric = json.loads(base64.b64decode(storage["automatic-ratings:v1:snapshot-metrics"]))
+        assert metric["peakSnapshotBytes"] == peak_bytes
+    evaluated_users = 2-totals.get("usersSkipped", 0)
+    assert totals["sourceErrors"] == 0 and totals["albums"]["processed"] == evaluated_users*album_count
+    assert totals["artists"]["processed"] == evaluated_users*min(album_count, 16)
     assert totals["albums"]["updated"] == album_count and totals["artists"]["updated"] == min(album_count, 16)
     assert not any(c["failed"] for c in (totals["albums"], totals["artists"]))
     assert len(ratings) == (album_count+min(album_count, 16) if write else 0)
     print(json.dumps({"runtime": extism.extism_version(), "albumsPerUser": album_count,
-        "songsPerUser": album_count*12, "users": 2, "dryRun": not write, "callbacks": callbacks,
+        "songsPerUser": album_count*12, "users": 2, "dryRun": not write, "fullScan": full_scan, "callbacks": callbacks,
         "executionMs": round(call_seconds*1000), "compilationMs": round(compilation_seconds*1000),
         "checkpointBytes": checkpoint_bytes, "peakSnapshotBytes": peak_bytes, "calls": calls,
         "totals": totals}), flush=True)
@@ -134,9 +151,10 @@ if __name__ == "__main__":
     parser.add_argument("--albums", type=int, nargs="+", default=[64, 128, 256])
     parser.add_argument("--batch-size", type=int, default=25)
     parser.add_argument("--write", action="store_true", help="Exercise writes to the in-memory fixture only")
+    parser.add_argument("--full-scan", action="store_true", help="Disable the unrated-user fast path for comparison")
     args = parser.parse_args()
     if not all(1 <= count <= 20000 for count in args.albums) or not 1 <= args.batch_size <= 100:
         parser.error("albums must be 1–20000 and batch size 1–100")
     extism.set_log_file("stderr", "error")
     for count in args.albums:
-        benchmark(args.wasm.resolve(), count, args.batch_size, args.write)
+        benchmark(args.wasm.resolve(), count, args.batch_size, args.write, args.full_scan)

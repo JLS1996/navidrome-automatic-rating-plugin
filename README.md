@@ -4,7 +4,7 @@
 
 One native WebAssembly plugin calculates **per-user album ratings and artist ratings directly from the user's song ratings**. Enable either output or both. Song ratings, music files, and metadata are never modified.
 
-**Version 0.1.1 is a prerelease.** The initial version was installation-tested in dry-run mode on Navidrome 0.64.2. This update has automated safety tests and compiled-WASM validation; live write validation is still outstanding. Defaults are `dry_run=true`, preservation for both outputs, and album-artist attribution.
+**Version 0.1.2 is a prerelease.** Earlier releases were installation-tested in dry-run mode on Navidrome 0.64.2. This update has automated safety tests and compiled-WASM validation; live write validation is still outstanding. Defaults are `dry_run=true`, preservation for both outputs, and album-artist attribution.
 
 ## What it does
 
@@ -27,12 +27,12 @@ Configure quotas and weights independently for albums and artists:
 ```text
 requiredRatedSongs = max(minimum_rated_songs, ceil(totalSongs × minimum_rated_percent / 100))
 score = sum(ratedSongStars × weight[ratedSongStars]) / sum(weight[ratedSongStars])
-rating = Math.round(score)
+rating = floor(exactScore + 0.5)
 ```
 
 Both the percentage and minimum-count quota must be met. Defaults are **30%**, **at least 1 rated song**, and star weights **1, 2, 3, 4, 5** at each output. Set all five weights to 1 for a plain mean. Weights can be fractional between 1 and 10.
 
-Unrated songs count toward coverage but stay out of the mean. Positive half-star ties round up: **2.5 → 3**, not banker's rounding. A below-quota result has no usable score; eligible existing ratings can be cleared to 0 according to the clearing policy. An empty source never causes a clear.
+Unrated songs count toward coverage but stay out of the mean. Positive half-star ties round up: **2.5 → 3**, not banker's rounding. Decimal weights are compared using exact integer ratios so floating-point error cannot round a mathematical half-star down. For example, one 1-star song with weight 1.1 and one 3-star song with weight 3.3 score exactly 2.5 and produce 3 stars. The logged score is a floating-point approximation; rounding uses the exact ratio. A below-quota result has no usable score; eligible existing ratings can be cleared to 0 according to the clearing policy. An empty source never causes a clear.
 
 An artist with one 5-star song and four 1-star songs scores `(25 + 4) / (5 + 4) = 29/9`, rounded to **3 stars**, regardless of how those songs are distributed across albums. Long albums contribute more songs than short releases. No distribution normalization or artificial promotion to 5 stars is applied.
 
@@ -100,7 +100,7 @@ The worker loads/validates the snapshot once per callback and encodes it once pe
 
 The worker atomically cancels its recurring schedule before processing and rearms it in `finally`. Daily callbacks only queue requests. If the process/runtime forcibly terminates before rearming, restart Navidrome to restore schedules. Persisted checkpoints resume unless calculation/safety settings, assigned users, library grants, or observed user library access have changed.
 
-Upgrading from 0.1.0 discards any partial scan using the old checkpoint format and logs `checkpoint_upgraded`. **Ownership records are retained.** Request a fresh run after upgrading; if `run_now` is already latched true, rearm it as described above.
+Upgrading from 0.1.0 or 0.1.1 discards any partial scan using the old checkpoint format and logs `checkpoint_upgraded`. **Ownership records are retained.** Request a fresh run after upgrading; if `run_now` is already latched true, rearm it as described above.
 
 ## Source completeness and failures
 
@@ -108,13 +108,21 @@ For each user, the plugin inventories all accessible granted libraries with pagi
 
 Before artist changes, it re-enumerates the album inventory and re-reads the source songs/credits. Verification compares **song IDs, rating values, and attributed artist IDs**, as well as inventory IDs/counts. If any source album is incomplete, unreadable, duplicated, changes these values, or has unavailable required credits, **all remaining artist writes for that user are deferred**. Valid album updates remain independent. A failed album rating write does not invalidate song data or block independently valid artist results. Artist events marked `blocked` reflect known groups; unknown artists in unreadable source data cannot be counted.
 
-A user with no rated songs in scope emits `user_unrated`. The initial album pass is still needed: the API provides no reliable cheap count of rated songs, and previously generated ratings may require clearing. Artist decisions that preserve a rating or leave it unrated skip the second inventory/source pass. Any eligible artist clear triggers that full verification before proceeding, including in dry-run mode. Summaries and per-item outcomes are retained.
+With `skip_unrated_users=true`, a paginated `search3` preflight can replace the per-album pass for wholly unrated users. It checks unique song IDs and per-album counts against the granted-library inventory, reads all required target artist ratings, and rechecks the album inventory/ratings/credits. Album-artist IDs come from the same structured inventory credits as `getAlbum`, while performing mode uses structured song credits. Pagination continues to explicit empty pages, including after a short page. A positive song rating ends the preflight early and starts the ordinary scan.
+
+The user is skipped only when no enabled output has ownership history and no existing rating requires changing. Ownership is checked with Navidrome's prefix-scoped KV list, including records created by earlier releases. Any ownership history forces a full scan so manual zero overrides and interrupted writes are still observed/recovered. Eligible clears, incomplete or malformed bulk responses, missing target artists, changing inventories, or ownership-list failures also fall back to the full scan. Unmanaged existing ratings can remain protected under preserve. The preflight never writes ratings or ownership records.
+
+A skipped user emits `user_skipped` and a `user_summary` with `skipped:true`, `skipReason:"no_rated_songs_or_eligible_clears"`, and zero processed items/distributions. No item events are emitted for that user. `run_summary.users` still includes the user; `usersSkipped` reports how many were skipped. `scannedSongs` includes the validated bulk source, while `preflightSongs` separately counts bulk song rows read, including preliminary rows discarded on fallback. Set `skip_unrated_users=false` for full per-item reporting. Audit mode always uses full scans.
+
+During an ordinary full scan, a wholly unrated source still emits `user_unrated`. No-op artist decisions skip unnecessary source rechecks, while any eligible artist clear triggers full verification, including in dry run.
 
 An active Navidrome library scan blocks processing or writes until a later run. Item failures are retried on the next full run. Fatal inventory/API failures end the affected user scan and report it as incomplete; later users can continue on a subsequent worker tick. Zero library access, zero visible albums, and missing user/library grants produce actionable warnings rather than silent success.
 
 Ratings reflect **each album's read time**, not the beginning or completion of a run. A source verification sweep checks each album in turn; an edit after that album was verified can still be absent from the result. Pre-write checks reduce races but cannot eliminate them without a server transaction. For reproducible external verification, pause rating/metadata edits during the run or capture the API responses used by the scan.
 
 Snapshot state is limited to **24 MiB** and total KV permission is **64 MB**. The capacity guard includes a conservative growth margin and cancels before an uncheckpointable target write. There is no verified maximum song count: metadata size, collaborations, assigned users, host latency, and checkpoint settings all affect capacity/runtime. Measure a complete dry run before scheduling a large catalogue; active daily requests coalesce rather than starting overlapping scans. Storage exhaustion and forcibly terminated callbacks need investigation before retrying. Ownership keys exceeding the host's 256-byte limit fail without a rating write.
+
+The checkpoint shrinks when a user/run completes because its working source is discarded. **A small completed checkpoint is not the active peak.** Progress and summary events expose `snapshotBytes`, `peakSnapshotBytes`, `peakReservedBytes`, and `snapshotLimitBytes`, with `snapshotMetricsScope:"run"`. Sizes count decoded checkpoint bytes, not base64 or process memory. The peak is measured at saved checkpoints and immediately before discarding a user's source; the reserved peak is the conservative growth bound used between checkpoints. Peaks persist across callbacks in a separate small KV record. Full snapshots still grow with source size, and checkpoint encoding still has a cost, so large-library timing should not be extrapolated as guaranteed linear scaling.
 
 ## Configuration
 
@@ -136,6 +144,8 @@ All settings have manifest defaults and a grouped settings form.
 | `batch_size` | `25` | Work units per checkpoint, 1–100 |
 | `batch_interval_seconds` | `10` | Continuation delay, 5–300 seconds |
 | `detail_logging` | `debug` | Item events at `debug`, `info`, or `off`; failures remain visible |
+| `skip_unrated_users` | `true` | Use validated bulk reads to skip users with no rated songs or required target/ownership work |
+| `audit_logging` | `false` | Full scans with settings, raw source credits/ratings, and item events at info for local independent verification |
 
 ## Logs and reconciliation
 
@@ -145,7 +155,7 @@ Temporarily setting `detail_logging=info` produces approximately one line per ev
 
 `user_summary` and `run_summary` contain separate `albums` and `artists` counters, elapsed milliseconds, dry-run status, source errors, and scanned-song counts. Every completed user scan emits a summary, including unrated or empty users. Info summaries include the proposed/successfully written rating distribution without requiring verbose item logs.
 
-Both summaries include `ratedSongs` and `ratingsAsOf:"per_album_read_time"`. `sourceReadStartedAt` and `sourceReadCompletedAt` bound the initial source reads; `sourceVerifiedAt` records the end of a successful verification sweep. Times are UTC Unix milliseconds, or null when unavailable. In a run summary these are the earliest source-read start, latest source-read completion, and latest successful **user** verification; they do not promise that all users were verified at that last time. Each user summary also includes `sourceVerified`, which is false when an unnecessary second pass was skipped or verification failed. `sourceComplete` means no source error was observed; it does not mean the library was frozen until run completion.
+Both summaries include `ratedSongs`. `sourceReadMode` is `album`, `song_pages`, or (for a mixed run) `mixed`; `ratingsAsOf` correspondingly reports `per_album_read_time`, `per_song_page_read_time`, or `per_source_read_time`. `sourceReadStartedAt` and `sourceReadCompletedAt` bound the source reads actually used; preliminary reads discarded on fallback are excluded. `sourceVerifiedAt` records the end of a successful full verification sweep. Times are UTC Unix milliseconds, or null when unavailable. In a run summary these are the earliest source-read start, latest source-read completion, and latest successful **user** verification; they do not promise that all users were verified at that last time. Each user summary also includes `sourceVerified`, which is false for a skipped user, an unnecessary second pass, or failed verification. `sourceComplete` means no source error was observed; it does not mean the library was frozen until run completion.
 
 The primary outcomes are mutually exclusive:
 
@@ -166,9 +176,24 @@ cleared = ratingCounts[0]
 
 Private usernames and music metadata can appear in local runtime logs and KV. Do not publish raw logs without reviewing/redacting them. Repository fixtures, examples, and release notes contain fictional data only.
 
+### Independent calculation audit
+
+For a reproducible calculation check, temporarily enable `audit_logging=true` and start a fresh run. Audit mode disables the fast path and promotes item events to info even when `detail_logging` is debug/off. It emits an `audit_config` event with the normalized calculation settings and a `source_album` event for each validated source read. Each source event contains raw structured `albumArtistIds` and song tuples `[songId, userRating, performingArtistIds]`, plus the read window. The item event schema is unchanged.
+
+Capture one complete, uninterrupted run from `run_started` through `run_summary`, then run:
+
+```bash
+python3 scripts/verify-audit.py /path/to/local-audit.log
+# Or pipe a selected run into: python3 scripts/verify-audit.py -
+```
+
+The verifier uses Python's standard library and exact fractions; it imports no plugin code and contacts no server. It independently selects album/performing credits, deduplicates collaborations, aggregates per-artist song histograms, checks quotas/scores/half-up targets, and reconciles item outcomes and summaries. It accepts event JSON, prefixed lines, and Navidrome JSON/quoted text logs. Missing source evidence, repeated/interrupted runs, failed items, and mismatches return a nonzero exit code. This verifies the calculation against the captured read-time API data; it does not establish that the database stayed unchanged afterward or verify rating ownership provenance.
+
+Audit logs contain song IDs, user identifiers, and credit relationships and can be substantially larger than ordinary item logs. Keep them local and turn audit logging off after verification, restarting Navidrome where required to apply the configuration.
+
 ## Develop, test, and build
 
-Node.js 22+, `zip`, Binaryen v125, and Extism JS PDK v1.7.0 are used by CI. Compiler downloads are checksum-verified. The pinned SDK dependency is only a development smoke-test runtime; the deployed plugin does not use npm or external network access.
+Node.js 22+, Python 3, `zip`, Binaryen v125, and Extism JS PDK v1.7.0 are used by CI. Python's standard library runs the independent verifier tests. Compiler downloads are checksum-verified. The pinned SDK dependency is only a development smoke-test runtime; the deployed plugin does not use npm, Python, or external network access.
 
 ```bash
 npm ci --ignore-scripts --no-audit --no-fund
@@ -179,7 +204,7 @@ npm run test:wasm
 
 Put `extism-js`, `wasm-merge`, and `wasm-opt` on PATH, or set `EXTISM_JS` to the compiler path. The build creates `dist/automatic-ratings.ndp` containing exactly `manifest.json`, `plugin.wasm`, and `LICENSE`. `npm run test:wasm` executes the compiled package with simulated host functions, including actual clear/write branches on fictional data and fresh WASM instances for callbacks. It does not contact a live server.
 
-CI tests, builds, smoke-tests, validates ZIP contents, and uploads an artifact/checksum on main pushes, PRs, and manual runs. Matching version tags such as `v0.1.1` publish a release with the same package and checksum. Prototype releases are marked prerelease.
+CI tests, builds, smoke-tests, validates ZIP contents, and uploads an artifact/checksum on main pushes, PRs, and manual runs. Matching version tags such as `v0.1.2` publish a release with the same package and checksum. Prototype releases are marked prerelease.
 
 For a scaling benchmark with fictional data and native Extism, install the pinned development dependencies in a virtual environment:
 
@@ -188,9 +213,10 @@ python3 -m venv .venv
 .venv/bin/pip install -r scripts/benchmark-requirements.txt
 .venv/bin/python scripts/benchmark-wasm.py --albums 64 128 256
 .venv/bin/python scripts/benchmark-wasm.py --albums 256 --write
+.venv/bin/python scripts/benchmark-wasm.py --albums 256 --full-scan
 ```
 
-Use `--wasm /path/to/previous/plugin.wasm` to compare builds. The script uses a rated and an unrated fictional user, asserts reconciled outcomes, and prints execution time separately from instance compilation time. It drains continuation callbacks immediately, so scheduler delays and real-server API latency are excluded. `--write` changes only the in-memory fixture. Native Extism avoids the JavaScript development SDK's signed allocation-address limitation during long simulated callbacks.
+Use `--wasm /path/to/previous/plugin.wasm` to compare builds, or `--full-scan` to disable the fast path. The script uses a rated and an unrated fictional user, asserts reconciled outcomes and fast-path skips, and checks reported peak sizes against observed checkpoints. It prints execution time separately from instance compilation time and drains continuation callbacks immediately, so scheduler delays and real-server API latency are excluded. `--write` changes only the in-memory fixture. Native Extism avoids the JavaScript development SDK's signed allocation-address limitation during long simulated callbacks.
 
 The plugin exports `nd_on_init`, `nd_scheduler_callback`, and a standalone `automatic_ratings_calculate` function accepting `{histogram:[unrated,one,two,three,four,five],options:{...}}`. Host permissions are Subsonic API, users, library metadata, scheduler, and KV. The code calls `setRating` only for validated album or artist IDs. No filesystem, direct database, or external HTTP permission is requested.
 
