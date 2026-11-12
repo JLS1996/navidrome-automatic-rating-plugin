@@ -16,7 +16,7 @@ Before artist changes, it re-enumerates albums and compares source song IDs, rat
 
 Active library scans block source processing or writes. Item failures retry on the next full run. Fatal inventory/API failures end the affected user's scan; later users can continue on another tick. Ratings represent individual source reads, not a whole-run transaction. Changes after verification can still be absent from a result.
 
-Before a rating write, the plugin records its intent in KV. It verifies the resulting rating before finalizing ownership. A lost response or interruption can be reconciled from the pending intent on a later scan. Storage failures prevent the affected write; unverifiable writes retain their intent. There is no automatic rollback over subsequent user edits. Ownership keys exceeding the host's 256-byte UTF-8 limit fail without a rating write.
+Before a rating write, the plugin records its intent in KV, then rechecks calculation settings, grants/access, and scan status immediately before calling `setRating`. A change during intent storage therefore defers the write. It verifies the resulting rating before finalizing ownership. A lost response or failed finalization can be reconciled from the pending intent on a later scan. Unverifiable/deferred writes retain their intent. The API does not provide an atomic compare-and-set or whole-run transaction; later edits can still occur between host calls. Ownership keys exceeding the host's 256-byte UTF-8 limit fail without a rating write.
 
 Worker callbacks serialize by atomically cancelling their recurring schedule and rearming it in `finally`. Batches share a 20-second callback budget and checkpoint between batches. Daily callbacks queue requests. A forced termination before rearming can require a Navidrome restart. Persisted requests/progress survive restart, subject to configuration/access checks; missed offline daily events are not automatically replayed.
 
@@ -36,7 +36,7 @@ totalSongs, ratedSongs, unratedSongs, requiredRatedSongs, meetsThreshold,
 dryRun, reason, error
 ```
 
-Unavailable item values are null. Routine item records follow `detail_logging`; errors remain visible. Audit mode promotes item records to info and also emits `audit_config` and `source_album` evidence.
+Unavailable item values are null. Routine item records follow `detail_logging`; failed and blocked items remain at error level even when details are off. When album output is disabled, an unreadable album emits `source_album_failed` with its user/ID/name, reason, and `action:"defer_artist_writes"`, rather than an uncounted album item event. Audit mode promotes routine item records to info and also emits `audit_config` and `source_album` evidence.
 
 `enabled`, `run_started`, `user_summary`, and `run_summary` expose `auditLogging` and `auditSourceFormat` (`structured_song_ratings_v1`, or null when disabled). These fields confirm whether independent evidence was requested; `detail_logging=info` alone never enables it.
 
@@ -111,7 +111,17 @@ npm run test:wasm
 
 The build creates `dist/automatic-ratings.ndp` containing exactly `manifest.json`, `plugin.wasm`, and `LICENSE`, plus the adjacent `automatic-ratings.ndp.sha256` checksum. Run `sha256sum -c automatic-ratings.ndp.sha256` from `dist` to verify it. Compiled-WASM tests use simulated host functions and fictional data, including write/clear branches and fresh callback instances. The pinned npm SDK is a development dependency; the deployed plugin requires neither npm nor Python.
 
-[CI](../.github/workflows/build.yml) tests, builds, verifies package contents, runs native scaling/write checks, and uploads an artifact/checksum. Matching version tags publish prereleases with the package and checksum.
+[CI](../.github/workflows/build.yml) tests, builds, verifies package contents, runs native scaling/write checks and real Navidrome integration, then uploads the validated artifact/checksum. Matching version tags publish regular releases; tags with a SemVer suffix such as `-rc.1` publish prereleases.
+
+### Isolated Navidrome integration
+
+With `ffmpeg` and the checksum-verified official Navidrome 0.64.2 (10114574) binary available, run:
+
+```bash
+python3 scripts/test-navidrome.py --navidrome /path/to/navidrome
+```
+
+The script creates a new temporary library, generated music files, users, database, and plugin storage; it binds only to loopback and never accepts an existing server or data directory. It uses the installed `.ndp`, real host APIs and scheduler to check audit dry runs, writes, convergence, manual edits (including zero), replace, clears, performing attribution, and unchanged song ratings/music files. A seeded pending intent in the temporary KV store checks recovery after lost ownership finalization. Success removes the fixture; failure retains it for diagnosis. This tests a controlled installation, not writes on a user's production library.
 
 For the native Extism benchmark:
 

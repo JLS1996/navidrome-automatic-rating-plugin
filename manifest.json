@@ -1,7 +1,7 @@
 {
   "name": "Automatic Ratings",
   "author": "Automatic Ratings contributors",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Generate per-user album and artist ratings independently from user-rated songs.",
   "website": "https://github.com/JLS1996/navidrome-automatic-rating-plugin",
   "permissions": {
@@ -43,7 +43,7 @@
           "type": "boolean",
           "title": "Log source evidence for independent verification",
           "default": false,
-          "description": "Log calculation settings, raw structured artist IDs, song IDs/ratings, and item outcomes at info level. Enables full scans and can produce large logs containing private library metadata. Use scripts/verify-audit.py to verify a complete run locally."
+          "description": "Log settings, structured artist IDs, song IDs/ratings, and outcomes at info level. Forces full scans for every user, bypassing the unrated-user precheck (preflightSongs stays 0). Can substantially increase runtime and private log volume. Keep off for daily use; verify a complete local run with scripts/verify-audit.py."
         },
         "rate_artists": {
           "type": "boolean",

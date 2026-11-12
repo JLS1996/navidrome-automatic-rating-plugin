@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "0.1.3";
+const VERSION = "0.2.0";
 const AUDIT_SOURCE_FORMAT = "structured_song_ratings_v1";
 const PREFIX = "automatic-ratings:v1:";
 const STATE_KEY = PREFIX + "scan";
@@ -703,7 +703,7 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       unratedSongs: result?.unratedSongs ?? null, requiredRatedSongs: result?.requiredRatedSongs ?? null,
       meetsThreshold: result?.meetsThreshold ?? null, dryRun: settings.dry_run,
       reason: decision.reason, error };
-    const level = decision.action === "failed" ? "error" : settings.audit_logging ? "info" : settings.detail_logging;
+    const level = decision.outcome === "failed" ? "error" : settings.audit_logging ? "info" : settings.detail_logging;
     if (level !== "off") event(level, "item", data);
   }
   function countOutcome(summary, result, decision, manualOverride, adopted) {
@@ -734,15 +734,17 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       if (decision.target !== null && (decision.outcome === "updated" || settings[`${kind}_rating_policy`] === "replace")) {
         const before = fresh();
         if (before !== current) throw Error("Rating changed concurrently; deferred");
+        if (!settings.dry_run && decision.outcome === "updated") {
+          // Persist intent before the final safety checks. Access, settings, or
+          // scan status can change while storage is being written, too.
+          put(key, { version: 1, rating: owner?.rating ?? null, manual: owner?.manual ?? false,
+            pending: { before: current, target: decision.target } });
+        }
         if (!checkContext(state, readSettings(readConfig))) throw Error("Scan context changed; deferred");
         assertNotScanning(c.user);
         adopted = decision.outcome === "unchanged" && (owner?.rating !== current || owner?.manual);
         if (!settings.dry_run) {
           if (decision.outcome === "updated") {
-            // Persist intent before touching Navidrome. A lost response or crash
-            // can then be recovered from the observed rating on the next scan.
-            put(key, { version: 1, rating: owner?.rating ?? null, manual: owner?.manual ?? false,
-              pending: { before: current, target: decision.target } });
             api("setRating", c.user, { id: item.id, rating: decision.target });
             const endpoint = kind === "album" ? "getAlbum" : "getArtist";
             const verified = api(endpoint, c.user, { id: item.id })[kind];
@@ -798,8 +800,11 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       if (!state.active) throw error;
       c.complete = false; c.sourceErrors++; c.sources[c.index - 1] = null;
       const decision = { outcome: "failed", action: "failed", target: null, reason: "source_album_failed" };
-      if (settings.rate_albums) countOutcome(c.albumsSummary, null, decision, false, false);
-      itemEvent("album", item, c, null, null, decision, settings, error.message);
+      if (settings.rate_albums) {
+        countOutcome(c.albumsSummary, null, decision, false, false);
+        itemEvent("album", item, c, null, null, decision, settings, error.message);
+      } else event("error", "source_album_failed", { user: c.user, id: item.id, name: item.name,
+        reason: error.message, action: "defer_artist_writes" });
       return;
     }
     let growth = 5, attributed = null;

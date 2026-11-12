@@ -295,6 +295,48 @@ test("ownership storage failure occurs before rating writes",()=>{
   const h=fixture();h.before=(name,request)=>name==="kvstore_set"&&request.key.includes("owner:")?{error:"storage quota exceeded"}:undefined;
   h.run({dry_run:false});assert.deepEqual(h.writes,[]);assert.ok(counts(h).albums.failed>0);assert.ok(counts(h).artists.failed>0);
 });
+test("ownership finalization failure retains the intent and recovers without repeating a successful write",()=>{
+  const h=fixture(),config={dry_run:false},key=ownerKey(user,"album","album-a");let failed=false;
+  h.before=(name,request)=>{
+    if(!failed&&name==="kvstore_set"&&request.key===key&&decode(request.value).pending===null&&h.getRating(user,"album","album-a")===5){
+      failed=true;return {error:"fictional finalization failure"};
+    }
+  };
+  h.run(config);assert.equal(failed,true);assert.equal(counts(h).albums.failed,1);
+  assert.equal(decode(h.storage.get(key)).pending.target,5);
+  const writes=h.writes.filter(w=>w.user===user&&w.id==="album-a").length;
+  repeat(h,config);assert.equal(decode(h.storage.get(key)).pending,null);
+  assert.equal(decode(h.storage.get(key)).rating,5);
+  assert.equal(h.writes.filter(w=>w.user===user&&w.id==="album-a").length,writes);
+});
+test("artist-only source failures do not emit uncounted album item events",()=>{
+  const h=fixture({users:[user]});h.before=(name,request)=>{
+    if(name==="subsonicapi_call"&&request.uri.startsWith("getAlbum?")&&request.uri.includes("id=album-a&"))return {error:"fictional source failure"};
+  };
+  h.run({rate_albums:false,dry_run:false,detail_logging:"info"});
+  assert.equal(counts(h).albums.processed,0);assert.equal(h.events("item").filter(e=>e.kind==="album").length,0);
+  assert.equal(h.events("source_album_failed").length,1);assert.equal(counts(h).sourceErrors,1);
+  assert.deepEqual(h.writes,[]);
+});
+test("blocked artist failures remain visible when routine item logging is off",()=>{
+  const h=fixture({users:[user]});bodyMutation(h,"getAlbum",body=>{if(body.album.id==="album-a")body.album.songCount++;});
+  h.run({dry_run:false,detail_logging:"off"});
+  const blocked=h.logs.filter(([,line])=>JSON.parse(line.slice(19)).action==="blocked");
+  assert.equal(blocked.length,counts(h).artists.failed);assert.ok(blocked.length>0);
+  assert.ok(blocked.every(([level])=>level==="error"));
+  assert.equal(h.writes.some(w=>w.kind==="artist"),false);
+});
+test("settings, access, and scanner changes while persisting a write intent defer the rating write",()=>{
+  for(const kind of ["album","artist"])for(const change of [(h,config)=>{config.dry_run=true;},h=>{h.folders=[];},h=>{h.scanning=true;}]){
+    const h=fixture({users:[user]}),config={dry_run:false,rate_albums:kind==="album",rate_artists:kind==="artist"};
+    const key=ownerKey(user,kind,kind==="album"?"album-a":"album-artist");let changed=false;
+    h.after=(name,request)=>{
+      if(!changed&&name==="kvstore_set"&&request.key===key&&decode(request.value).pending){changed=true;change(h,config);}
+    };
+    h.run(config);assert.equal(changed,true);assert.deepEqual(h.writes,[]);
+    assert.equal(decode(h.storage.get(key)).pending.target,kind==="album"?5:3);
+  }
+});
 test("corrupt ownership protects the affected rating even in replace mode",()=>{
   const h=fixture();h.setRating(user,"album","album-a",2);h.storage.set(ownerKey(user,"album","album-a"),encode({broken:true}));
   h.run({dry_run:false,album_rating_policy:"replace"});assert.equal(h.getRating(user,"album","album-a"),2);

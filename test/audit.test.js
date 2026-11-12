@@ -99,3 +99,16 @@ test("artist selection rejects missing IDs/users and still verifies unrelated so
   const events=h.events();events.find(e=>e.event==="item"&&e.kind==="album"&&e.id==="album-b").score=4;
   assert.equal(verify(plain(events),["--explain-artist","collaborator"]).status,1);
 });
+test("artist explanations refuse failed or blocked evaluations rather than presenting a partial result",()=>{
+  for(const blocked of [false,true]){
+    const h=fixture();h.before=(name,request)=>{
+      if(name==="subsonicapi_call"&&request.uri.startsWith(blocked?"getAlbum?":"getArtist?")&&
+          request.uri.includes(blocked?"id=album-a&":"id=album-artist&"))return {error:"fictional source or target failure"};
+    };
+    h.run({audit_logging:true});
+    const result=verify(plain(h.events()),["--explain-artist","album-artist","--user","example-reader"]);
+    assert.equal(result.status,1);assert.equal(result.ok,false);
+    assert.match(result.error,blocked?/Incomplete source/:/Failed or blocked/);
+    assert.equal(Object.hasOwn(result,"artistExplanations"),false);
+  }
+});

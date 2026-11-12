@@ -4,7 +4,7 @@ const path=require("node:path");
 const fs=require("node:fs"),os=require("node:os"),{spawnSync}=require("node:child_process");
 const {createPlugin}=require("@extism/extism");
 const {fixture}=require("../test/helpers");
-const {decode}=require("../src/plugin");
+const {decode,ownerKey}=require("../src/plugin");
 const wasm=path.resolve(__dirname,"../dist/plugin.wasm");
 const names=["subsonicapi_call","users_getusers","library_getalllibraries","scheduler_schedulerecurring",
   "scheduler_cancelschedule","kvstore_get","kvstore_set","kvstore_list"];
@@ -69,6 +69,14 @@ async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";a
   assert.equal(lastUsers[1].sourceVerified,false); // No-op user avoids the second pass.
   assert.equal(h.schedules.size,2);
   for(const[key,value]of h.storage)if(key.includes("owner:"))assert.equal(decode(value).pending,null);
+  const guarded=fixture({users:["example-reader"]}),guardConfig={run_now:"true",dry_run:"false",rate_artists:"false"};
+  const guardKey=ownerKey("example-reader","album","album-a");let scanStarted=false;
+  guarded.after=(name,request)=>{
+    if(name==="kvstore_set"&&request.key===guardKey&&decode(request.value).pending){scanStarted=true;guarded.scanning=true;}
+  };
+  await invoke(guarded,guardConfig,"nd_on_init");await worker(guarded,guardConfig);
+  assert.equal(scanStarted,true);assert.deepEqual(guarded.writes,[]);
+  assert.equal(decode(guarded.storage.get(guardKey)).pending.target,5);
   const audit=fixture(),auditConfig={run_now:"true",audit_logging:"true"};
   audit.albums[0].artists.push({id:"collaborator",name:"Example collaborator"});
   await invoke(audit,auditConfig,"nd_on_init");await worker(audit,auditConfig);
@@ -84,5 +92,5 @@ async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";a
     assert.deepEqual(report.artistExplanations[0].contributions[0].songs,
       [{id:"album-a-song-0",rating:5,artistIds:["album-artist","collaborator"]}]);
   }finally{fs.rmSync(temp,{recursive:true,force:true});}
-  console.log("Compiled WASM smoke passed: independent outputs, exact fractional ties, dry-run isolation, ownership, clears, performing credits, safe unrated-user skips, native host imports, scheduler rearming, audit status, and independent artist explanations.");
+  console.log("Compiled WASM smoke passed: independent outputs, exact fractional ties, dry-run isolation, ownership, clears, final write guards, performing credits, safe unrated-user skips, native host imports, scheduler rearming, audit status, and independent artist explanations.");
 })().catch(error=>{console.error(error);process.exitCode=1;});

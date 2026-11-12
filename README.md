@@ -6,7 +6,7 @@ Calculate **album and artist ratings from each user's song ratings**. Choose eit
 
 **Defaults:** both outputs enabled, album-artist attribution, 30% coverage with at least one rated song, preservation of existing ratings, and dry-run mode.
 
-**v0.1.3 is a prerelease.** Versions through 0.1.2 were installation-tested in dry-run mode on Navidrome 0.64.2; real-server write validation remains outstanding.
+**[v0.2.0](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/tag/v0.2.0) is the first regular release.** Dry-run calculations have been independently verified on a real library. Automated tests exercise writes and ownership recovery on an isolated Navidrome 0.64.2 server with fictional music.
 
 ## Install and preview
 
@@ -17,11 +17,11 @@ Requires **Navidrome 0.64.2 or newer** with native plugins enabled:
 Enabled = true
 ```
 
-1. Download the ready-to-install **[plugin package (.ndp)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.1.3/automatic-ratings.ndp)** and [checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.1.3/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256` in the download directory. No source build is needed.
+1. Download the ready-to-install **[plugin package (.ndp)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp)** and [checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256` in the download directory. No source build is needed.
 2. Back up the Navidrome database and plugin storage. Copy the package into the plugins directory and rescan plugins, using `navidrome plugin rescan` where supported.
 3. Grant the plugin the intended **users and libraries**, then enable **Automatic Ratings**. Each user's inputs are limited to libraries allowed by both the plugin grant and their own access. Empty grants do not mean unrestricted access.
 4. Open the plugin settings. Keep `dry_run=true`, choose the settings below, and set `run_now=true`. Save and restart Navidrome where required. Review `user_summary` and `run_summary`; temporarily choose `detail_logging=info` to inspect individual decisions.
-5. When the preview matches your intent, disable older rating plugins, set `dry_run=false`, and request a fresh run. Changing dry-run mode cancels any active preview. See [running again](#schedule-and-manual-runs) if `run_now` is already true.
+5. When the preview matches your intent, disable older rating plugins, set `dry_run=false`, and request a fresh run. Keep the policies you previewed; turn `audit_logging=false` and `detail_logging=debug` for normal use. Changing dry-run mode cancels any active preview. See [running again](#schedule-and-manual-runs) if `run_now` is already true.
 
 **On Navidrome 0.64.2, restart the server/container after settings or grant edits.** These edits can unload the plugin without restarting its callbacks. Confirm an `enabled` log event; disabling and re-enabling the plugin may not restore them.
 
@@ -164,7 +164,7 @@ Ratings reflect their **source read time**, not one frozen database state at run
 
 ### Independently verify a calculation
 
-Set **`audit_logging=true`**, apply settings/restart, and request a fresh dry run. **`detail_logging=info` alone does not enable audits.** Startup and summaries show `auditLogging`; audit mode forces full scans and logs settings, source song ratings/structured credits, and outcomes at info level.
+Set **`audit_logging=true`**, apply settings/restart, and request a fresh dry run. **`detail_logging=info` alone does not enable audits.** Startup and summaries show `auditLogging`. Audit mode bypasses the unrated-user precheck (`preflightSongs:0`) and fully scans every user. It logs settings, song ratings/structured credits, and outcomes at info level; runtime and log volume can grow substantially with users and songs. Keep it off for daily use.
 
 Capture **one complete, uninterrupted run**, from `run_started` through `run_summary`, then run the verifier from a checkout of this repository:
 

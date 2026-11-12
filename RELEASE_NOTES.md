@@ -1,17 +1,24 @@
-# Automatic Ratings v0.1.3 — explain artist calculations and clarify progress
+# Automatic Ratings v0.2.0 — first regular release
 
-Download the ready-to-install [automatic-ratings.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.1.3/automatic-ratings.ndp) and [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.1.3/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256`, copy the package to Navidrome's plugins directory, and restart. Users do not need Node.js, Python, or a source build to install the plugin.
+Download the ready-to-install [automatic-ratings.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp) and [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256`, replace the package in Navidrome's plugins directory, and restart. No source build, Node.js, or Python is needed to install it.
 
-- Explain an artist's result with `python3 scripts/verify-audit.py LOG --explain-artist ARTIST_ID --user USERNAME`. The independent verifier checks the entire audit run before listing per-album songs, structured credits, histograms, coverage, exact scores, and calculated versus proposed ratings. Collaboration songs count once per credited artist, including artists absent from the database's primary album-artist column.
-- Make audit mode visible in startup and summaries through `auditLogging` and `auditSourceFormat`. Enable `audit_logging=true` for a fresh audit run; `detail_logging=info` alone records item decisions without source evidence. Audit mode remains off by default.
-- Clarify bulk-read progress with `userPreflightSongs`, cumulative `runPreflightSongs`, and `preflightSongsScope`. The existing `preflightSongs` field keeps its previous meaning. Counters measure returned song rows, including preliminary pages discarded when falling back to full scans.
-- Put the AI-development notice and direct package downloads near the top of the shorter, settings-focused README. Keep public examples fictional.
-- Produce the package checksum during `npm run build`, and verify it in CI before publishing the tested artifacts.
+Generate per-user album and artist ratings directly from songs, with independent coverage thresholds, weights, preserve/replace policies, and optional clearing. Dry run remains the default. Structured album-artist and performing-artist modes, safe unrated-user skips, resumable checkpoints, ownership/manual-override handling, and independent local audits are included.
 
-## Upgrade and preview
+## Fixes and validation
 
-Calculation results, defaults, item-event fields, ownership records, and the v0.1.2 checkpoint format are unchanged. Saved v0.1.2 runs can resume. Partial checkpoints from 0.1.0/0.1.1 still require a fresh run. On Navidrome 0.64.2, restart after settings or grant changes and confirm an `enabled` event. Rearm an already-latched `run_now` by applying false for one worker tick before setting true again.
+- Recheck settings, user/library access, and scan status after persisting a write intent, immediately before the rating API call. Changes during storage now defer that write, retaining its intent for recovery.
+- Keep failed and blocked item events visible at error level even with detailed logging off. Artist-only source failures use a source-error event rather than an uncounted album evaluation.
+- Test lost ownership finalization, final write guards for both outputs, and refusal to explain failed/blocked audit evaluations.
+- Add an automated integration test using the installed package on a real, isolated Navidrome 0.64.2 server with fictional music and users. It exercises audit dry runs, writes, convergence, recovery from a seeded pending intent, manual edits including zero, replace, clears, performing attribution, and song/file isolation. CI checks this before publication alongside unit tests, WASM smoke tests, native scaling/write checks, package contents, and checksum verification.
+- Explain audit mode's operating cost: it fully scans every user, bypasses the unrated-user precheck (`preflightSongs:0`), and can substantially increase runtime and private log volume. Keep it off for normal daily runs.
 
-Leave `dry_run=true` for the first run. For an independent audit, enable `audit_logging=true`, capture one complete uninterrupted run, and keep the source log and explanations local. Disable audit logging afterward.
+Calculations, defaults, item fields, ownership keys, and the v0.1.2/0.1.3 checkpoint format remain compatible. Existing dry-run calculations have been independently verified on a real library; the new write integration uses a controlled temporary installation, not a production library.
 
-This is a prerelease. Versions through 0.1.2 were installation-tested in dry-run mode on Navidrome 0.64.2; real-server write validation remains outstanding. Automated tests and compiled-WASM checks exercise simulated writes, clears, recovery, attribution, and the safe unrated-user shortcut.
+## Apply ratings in your library
+
+1. Back up the Navidrome database and plugin storage; disable older rating plugins. Install the package and restart.
+2. Keep the policies and thresholds you previewed. Set `dry_run=false`, `audit_logging=false`, and `detail_logging=debug` for normal operation.
+3. Request a fresh run. If `run_now` is already true, first apply false and let one worker tick observe it, then apply true. On Navidrome 0.64.2, restart after each settings/grant edit and confirm an `enabled` event.
+4. Check `user_summary` and `run_summary`: updated counts now represent verified writes. Preserve leaves existing ratings from older plugins protected; preview replace for the selected output before using it to adopt or regenerate those values.
+
+Keep the package filename/ID and plugin storage during upgrades so ownership evidence survives. Partial checkpoints from 0.1.0/0.1.1 still require a fresh run. Audit logs and explanations contain private library metadata and should stay local.
