@@ -54,7 +54,7 @@ Examples show only the settings to change. Keep the other settings at your chose
 
 ## Choose how much each star rating counts
 
-You can give songs with a particular rating more influence on the result. Weights are separate for albums and artists; each accepts a number from **0 to 10**, including decimals. **Zero weights are new in the upcoming v0.3.0; the published v0.2.0 requires at least 1.**
+You can give songs with a particular rating more influence on the result. Weights are separate for albums and artists; each accepts a number from **0 to 10**, including decimals. Zero weights require **v0.3.0 or newer**.
 
 | Settings | Defaults for 1★ through 5★ |
 |---|---|

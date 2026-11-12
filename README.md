@@ -15,7 +15,7 @@ Requires **Navidrome 0.64.2 or newer** with native plugins enabled:
 Enabled = true
 ```
 
-1. Download the ready-to-install **[v0.2.0 package (.ndp)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp)** and [checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.2.0/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256`. No source build is needed.
+1. Download the ready-to-install **[v0.3.0 package (.ndp)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.0/automatic-ratings.ndp)** and [checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.0/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256`. No source build is needed.
 2. Back up the Navidrome database and plugin storage. Copy the package into the plugins directory, rescan plugins, grant the intended **users and libraries**, and enable **Automatic Ratings**.
 3. Keep `dry_run=true`, choose your [settings](docs/CONFIGURATION.md), and set `run_now=true`. Save and restart Navidrome.
 4. Review `user_summary` and `run_summary`. To apply ratings, disable older rating plugins, set `dry_run=false`, and [request another run](docs/OPERATIONS.md#schedule-and-manual-runs).
@@ -32,7 +32,7 @@ Enabled = true
 | [Operations](docs/OPERATIONS.md) | Installation, migration, upgrades, manual runs, monitoring, repeat-run checks, and independent audits. |
 | [Technical reference](docs/REFERENCE.md) | Source validation, recovery, event schemas, storage, building, and tests. |
 
-Upcoming v0.3.0 adds [zero weights to exclude star levels](docs/CONFIGURATION.md#exclude-a-star-level); defaults stay unchanged.
+**New in v0.3.0:** [exclude star levels with zero weights](docs/CONFIGURATION.md#exclude-a-star-level), independently for albums and artists. Defaults stay unchanged.
 
 Album/artist writes have been verified in production on Navidrome 0.64.2. See [validation details](docs/OPERATIONS.md#validation-status) and the [release notes](RELEASE_NOTES.md).
 
