@@ -121,7 +121,7 @@ With `ffmpeg` and the checksum-verified official Navidrome 0.64.2 (10114574) bin
 python3 scripts/test-navidrome.py --navidrome /path/to/navidrome
 ```
 
-The script creates a new temporary library, generated music files, users, database, and plugin storage; it binds only to loopback and never accepts an existing server or data directory. It uses the installed `.ndp`, real host APIs and scheduler to check audit dry runs, writes, convergence, manual edits (including zero), replace, clears, performing attribution, and unchanged song ratings/music files. A seeded pending intent in the temporary KV store checks recovery after lost ownership finalization. Success removes the fixture; failure retains it for diagnosis. This tests a controlled installation, not writes on a user's production library.
+The script creates a new temporary library, generated music files, users, database, and plugin storage; it binds only to loopback and never accepts an existing server or data directory. It checks a custom-quota migration with matching and differing foreign ratings, then repeats it to verify zero writes, zero new adoptions, and unchanged annotation timestamps. Every run reconciles database rating/timestamp changes with summary write counts, including song isolation. It also checks manual edits (including zero), preserve/replace, clears, performing attribution, and unchanged music files. A seeded pending intent checks recovery after lost ownership finalization. Success removes the fixture; failure retains it for diagnosis. This tests a controlled installation, not writes on a user's production library.
 
 For the native Extism benchmark:
 

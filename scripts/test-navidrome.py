@@ -4,6 +4,7 @@ Requires ffmpeg and a checksum-verified Navidrome binary. Creates only fictional
 music, users, and a new temporary database; never connects to an existing server.
 """
 import argparse
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
@@ -146,6 +147,7 @@ def exercise(binary, package):
 
     def run(**changes):
         before = song_ratings()
+        before_annotations = annotation_rows()
         settings.update(changes)
         settings["run_now"] = False
         configure()
@@ -161,7 +163,14 @@ def exercise(binary, package):
         summary = wait_for(lambda: [e for e in events() if e["event"] == "run_summary"][previous:], "plugin run")[0]
         check(summary["sourceErrors"] == summary["albums"]["failed"] == summary["artists"]["failed"] == 0, str(summary))
         check(song_ratings() == before, "Plugin changed song ratings")
-        print(json.dumps({"stage": changes, "albums": summary["albums"], "artists": summary["artists"]}), flush=True)
+        after_annotations = annotation_rows()
+        changed = Counter(key[2] for key in before_annotations.keys() | after_annotations.keys()
+            if before_annotations.get(key) != after_annotations.get(key))
+        expected = Counter({kind: summary[kind+"s"]["updated"] for kind in ("album", "artist")
+            if not summary["dryRun"] and summary[kind+"s"]["updated"]})
+        check(changed == expected, f"Annotation rating/timestamp changes {changed} disagree with verified writes {expected}")
+        print(json.dumps({"stage": changes, "albums": summary["albums"], "artists": summary["artists"],
+            "changedAnnotationsByKind": changed}), flush=True)
         return summary
 
     def rating(kind, entity_id):
@@ -171,6 +180,11 @@ def exercise(binary, package):
         return {user: sorted((song["id"], song.get("userRating", 0)) for song in api("search3", user=user,
             query='""', songCount=100, albumCount=0, artistCount=0).get("searchResult3", {}).get("song", []))
             for user in ("fixture-admin", "example-reader", "example-unrated")}
+
+    def annotation_rows():
+        with sqlite3.connect(f"file:{data}/navidrome.db?mode=ro", uri=True) as db:
+            return {tuple(row[:3]): tuple(row[3:]) for row in db.execute(
+                "SELECT user_id,item_id,item_type,rating,rated_at FROM annotation")}
 
     try:
         check(subprocess.check_output([str(binary), "--version"], text=True).strip() == "0.64.2 (10114574)", "Use Navidrome 0.64.2 (10114574)")
@@ -205,29 +219,38 @@ def exercise(binary, package):
         for album, values in [(bright, [5]), (dim, [1]*4), (sparse, [5, 0, 0, 0])]:
             for song, value in zip(album["song"], values):
                 api("setRating", id=song["id"], rating=value)
-        run(dry_run=True, audit_logging=True)
-        check(rating("album", bright["id"]) == rating("artist", catalogue) == 0, "Dry run wrote ratings")
+        # Model a foreign plugin's matching and differing ratings. Custom coverage
+        # also makes the sparse album qualify, unlike the manifest's 30% default.
+        api("setRating", id=bright["id"], rating=5)
+        api("setRating", id=dim["id"], rating=4)
+        api("setRating", id=catalogue, rating=3)
+        run(dry_run=True, audit_logging=True, album_rating_policy="replace", artist_rating_policy="replace",
+            album_minimum_rated_percent=25, artist_minimum_rated_percent=25)
         audit.verify(events())
         result = run(dry_run=False, audit_logging=False)
         check(result["albums"]["updated"] == 2 and result["artists"]["updated"] == 1, "Initial writes missing")
-        check(rating("album", bright["id"]) == 5 and rating("artist", catalogue) == 3, "Written scores differ")
+        check(result["albums"]["adopted"] == result["artists"]["adopted"] == 1, "Matching foreign values were not adopted")
+        check(rating("album", bright["id"]) == 5 and rating("album", dim["id"]) == 1 and
+            rating("album", sparse["id"]) == 5 and rating("artist", catalogue) == 3, "Configured migration results differ")
         # Inject only into this temporary store to model lost ownership finalization
         # after a successful host write, then recover through the installed plugin.
         stop()
-        key = "automatic-ratings:v1:owner:" + json.dumps(["example-reader", "album", bright["id"]], separators=(",", ":"))
-        pending = json.dumps({"version": 1, "rating": None, "manual": False, "pending": {"before": 0, "target": 5}}).encode()
+        key = "automatic-ratings:v1:owner:" + json.dumps(["example-reader", "album", dim["id"]], separators=(",", ":"))
+        pending = json.dumps({"version": 1, "rating": None, "manual": False, "pending": {"before": 4, "target": 1}}).encode()
         with sqlite3.connect(data / "plugins/automatic-ratings/kvstore.db") as db:
             check(db.execute("UPDATE kvstore SET value=?,size=? WHERE key=?", (pending, len(pending), key)).rowcount == 1,
                 "Missing initial ownership record")
         start()
         result = run()
         check(result["albums"]["updated"] == result["artists"]["updated"] == 0, "Repeated run should converge")
+        check(result["albums"]["adopted"] == result["artists"]["adopted"] == 0, "Owned values must not be adopted again")
+        check(result["albums"]["unchanged"] == 3 and result["artists"]["unchanged"] == 2, "Expected all migrated ratings to match")
         with sqlite3.connect(f"file:{data}/plugins/automatic-ratings/kvstore.db?mode=ro", uri=True) as db:
             owner = json.loads(db.execute("SELECT value FROM kvstore WHERE key=?", (key,)).fetchone()[0])
-        check(owner["pending"] is None and owner["rating"] == 5, "Pending intent was not recovered")
+        check(owner["pending"] is None and owner["rating"] == 1, "Pending intent was not recovered")
         api("setRating", id=bright["id"], rating=2)
         api("setRating", id=catalogue, rating=0)
-        result = run()
+        result = run(album_rating_policy="preserve", artist_rating_policy="preserve")
         check(rating("album", bright["id"]) == 2 and rating("artist", catalogue) == 0, "Manual override lost")
         check(result["albums"]["manualOverrides"] == result["artists"]["manualOverrides"] == 1, "Overrides not detected")
         run(album_rating_policy="replace", artist_rating_policy="replace")
@@ -236,7 +259,7 @@ def exercise(binary, package):
             for song in album["song"]:
                 api("setRating", id=song["id"], rating=0)
         result = run(album_rating_policy="preserve", artist_rating_policy="preserve")
-        check(result["albums"]["cleared"] == 2 and result["artists"]["cleared"] == 1, "Owned ratings were not cleared")
+        check(result["albums"]["cleared"] == 3 and result["artists"]["cleared"] == 2, "Owned ratings were not cleared")
         check(rating("album", bright["id"]) == rating("artist", catalogue) == 0, "Cleared ratings remain")
         api("setRating", id=bright["song"][0]["id"], rating=5)
         api("setRating", id=dim["song"][0]["id"], rating=5)
@@ -244,7 +267,7 @@ def exercise(binary, package):
         performer = bright["song"][0]["artists"][0]["id"]
         check(rating("artist", performer) == 5 and rating("artist", catalogue) == 0, "Performing attribution failed")
         check(all(hashlib.sha256(path.read_bytes()).digest() == digest for path, digest in file_hashes.items()), "Music files changed")
-        print("Real Navidrome integration passed: audit dry run, writes, pending-intent recovery, convergence, manual overrides, replace, clears, performing attribution, song/file isolation.", flush=True)
+        print("Real Navidrome integration passed: audit dry run, custom-quota migration, writes, adoption, pending-intent recovery, zero-write/timestamp convergence, manual overrides, replace, clears, performing attribution, song/file isolation.", flush=True)
     except BaseException:
         print(f"Fictional integration fixture retained at {root}", flush=True)
         raise
