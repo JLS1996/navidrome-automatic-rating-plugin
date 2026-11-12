@@ -1,10 +1,12 @@
 # Automatic Ratings for Navidrome
 
+> **AI notice:** This plugin and its documentation were developed with AI assistance. Review a dry run before enabling writes.
+
 Calculate **album and artist ratings from each user's song ratings**. Choose either output or both, set how many songs must be rated, and decide how to handle existing ratings. Artist scores come directly from songs; album ratings do not influence them. Song ratings and music files remain unchanged.
 
 **Defaults:** both outputs enabled, album-artist attribution, 30% coverage with at least one rated song, preservation of existing ratings, and dry-run mode.
 
-**v0.1.2 is a prerelease.** Earlier releases were installation-tested in dry-run mode on Navidrome 0.64.2; real-server write validation remains outstanding. This project was developed with AI assistance. Preview results before enabling writes.
+**v0.1.3 is a prerelease.** Versions through 0.1.2 were installation-tested in dry-run mode on Navidrome 0.64.2; real-server write validation remains outstanding.
 
 ## Install and preview
 
@@ -15,7 +17,7 @@ Requires **Navidrome 0.64.2 or newer** with native plugins enabled:
 Enabled = true
 ```
 
-1. Download `automatic-ratings.ndp` and `automatic-ratings.ndp.sha256` from [Releases](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases). In the download directory, verify with `sha256sum -c automatic-ratings.ndp.sha256`.
+1. Download the ready-to-install **[plugin package (.ndp)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.1.3/automatic-ratings.ndp)** and [checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.1.3/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256` in the download directory. No source build is needed.
 2. Back up the Navidrome database and plugin storage. Copy the package into the plugins directory and rescan plugins, using `navidrome plugin rescan` where supported.
 3. Grant the plugin the intended **users and libraries**, then enable **Automatic Ratings**. Each user's inputs are limited to libraries allowed by both the plugin grant and their own access. Empty grants do not mean unrestricted access.
 4. Open the plugin settings. Keep `dry_run=true`, choose the settings below, and set `run_now=true`. Save and restart Navidrome where required. Review `user_summary` and `run_summary`; temporarily choose `detail_logging=info` to inspect individual decisions.
@@ -27,7 +29,7 @@ Installation uses only the `.ndp` package. Node.js and Python are not required o
 
 ## Choose what to rate
 
-Album and artist settings are independent: you can generate one kind, preserve the other, or give them different coverage requirements and weights.
+Album and artist settings are independent: choose either output or both, with separate policies, coverage requirements, and weights.
 
 | Setting | Default | What you can change |
 |---|---|---|
@@ -35,14 +37,14 @@ Album and artist settings are independent: you can generate one kind, preserve t
 | `rate_artists` | `true` | Generate artist ratings from attributed songs across the selected libraries. |
 | `artist_attribution` | `album_artist` | Choose album artists or the performing artists credited on each song. |
 
-Turning an output off leaves its existing ratings in place. Singles, EPs, compilations, and separate editions follow Navidrome's IDs.
+Disabling an output leaves its ratings in place. Albums and separate editions follow Navidrome's IDs.
 
 For artist attribution, choose:
 
 - **`album_artist`:** every song contributes once to each artist in the album's structured `artists` credits. Use this to rate artists by their album catalogue.
 - **`performing_artist`:** each song contributes once to each artist in its structured `artists` credits, including guest-only performers. Composer and instrumental-contributor credits are not automatically included.
 
-Names are never split on punctuation. For example, a four-song album shared by fictional **Aurora Ensemble** and **Cedar Quartet** contributes four songs to each artist. Those songs also count toward each artist's coverage requirement. To verify album-artist results externally, use **all IDs in `getAlbum.artists`**; the database's single `media_file.album_artist_id` can omit collaborators.
+Names are never split on punctuation. A four-song album shared by fictional **Aurora Ensemble** and **Cedar Quartet** contributes four songs to each artist's score and coverage denominator. External checks must use **all IDs in `getAlbum.artists`**; the database's single `media_file.album_artist_id` can omit collaborators. The [audit command](#independently-verify-a-calculation) explains each artist's contributing songs.
 
 Artist ratings belong globally to a user and artist; library grants select their inputs. Include the full intended catalogue before replacing an artist's rating.
 
@@ -57,7 +59,7 @@ An item qualifies only when **both** its percentage and minimum-count requiremen
 | `album_minimum_rated_songs` | `1` | Minimum rated-song count for an album, from 1 to 1,000,000. |
 | `artist_minimum_rated_songs` | `1` | Minimum rated-song count for an artist, from 1 to 1,000,000. |
 
-The required count is `max(minimum count, ceil(total songs × percentage / 100))`. A ten-song album at 30% needs three rated songs; raising its minimum count to five means it needs five. Setting the percentage to 0 leaves the minimum-count requirement in force. Raising the minimum above an item's total song count prevents it from qualifying.
+The required count is `max(minimum count, ceil(total songs × percentage / 100))`. A ten-song album at 30% needs three rated songs, or five if you raise its minimum to five. A percentage of 0 still requires the minimum count; a minimum above the total prevents qualification.
 
 For example, these changes generate only artist ratings, include credited guest performers, and require at least half the songs and at least five rated songs:
 
@@ -94,9 +96,9 @@ The defaults give higher-rated songs more influence. Set all five weights to the
 }
 ```
 
-Use the corresponding `artist_` settings to make the same change for artists. Changing album weights does not change artist calculations.
+Use the corresponding `artist_` settings for artists.
 
-The score is `sum(song stars × weight for those stars) / sum(weights)`, using rated songs only. It rounds to the nearest star, with exact half-star ties rounding up: **2.5 → 3**. Decimal-weight ties use exact ratios. An artist with one 5-star song and four 1-star songs gets **3 stars** with the default weights (`29/9`), or **2 stars** with equal weights (`9/5`). Longer albums contribute more songs; there is no normalization of the final rating distribution.
+The score is `sum(song stars × weight for those stars) / sum(weights)`, using rated songs only. It rounds to the nearest star, with exact ties rounding up: **2.5 → 3**. One 5-star song and four 1-star songs give **3 stars** with default weights (`29/9`), or **2 stars** with equal weights (`9/5`). Longer albums contribute more songs.
 
 ## Decide what happens to existing ratings
 
@@ -111,8 +113,6 @@ The score is `sum(song stars × weight for those stars) / sum(weights)`, using r
 **Replace** permits overwriting existing ratings, including manual ratings. Matching calculated values are adopted into this plugin's ownership without an unnecessary rating write. It validates each change before applying it; there is no initial wipe.
 
 When clearing is enabled, an eligible item that no longer meets coverage is reset to **0 (unrated)**. Set the relevant `*_clear_below_threshold=false` to retain that value instead. Preserve still protects unmanaged/manual ratings. Empty or incomplete sources never trigger a clear.
-
-For example, keep existing album ratings while allowing artist ratings to be regenerated with `album_rating_policy=preserve` and `artist_rating_policy=replace`.
 
 ### Migrating from another ratings plugin
 
@@ -143,9 +143,9 @@ Requests during an active run join that run rather than starting another. Saved 
 | `batch_size` | `25` | Work units per checkpoint, from 1 to 100. Larger batches save progress less often. |
 | `batch_interval_seconds` | `10` | Delay before continuing unfinished work or checking requests, from 5 to 300 seconds. |
 
-The unrated-user shortcut checks bulk song/artist data and existing ratings first. Any enabled-output ownership history, required clear, or uncertain source falls back to a full scan, preserving manual-override detection and interrupted-write recovery. Skipped users still receive a summary, with `skipped:true` and zero processed items.
+The unrated-user shortcut validates bulk data and existing ratings first. Ownership history, required clears, or uncertain data force a full scan. Skipped users receive `skipped:true` summaries with zero processed items.
 
-Batches chain within a shared **20-second callback budget**; the continuation interval is not a sleep after every batch. Lowering the interval resumes unfinished work sooner. Raising the batch size reduces checkpoint overhead but increases work repeated after an interruption. Individual slow host calls can exceed the budget. Leave these controls at their defaults unless you need to tune a large library.
+Batches share a **20-second callback budget**, followed by the continuation interval. A shorter interval resumes work sooner; larger batches reduce checkpoint overhead but repeat more work after interruptions. Slow host calls can exceed the budget. Keep the defaults unless tuning a large library.
 
 There is no verified maximum song count or guaranteed linear runtime. Snapshot capacity is **24 MiB**, with **64 MB** total plugin storage. Use a complete dry run and the progress logs to assess a large catalogue. A small checkpoint after completion is not the active storage peak.
 
@@ -156,7 +156,7 @@ There is no verified maximum song count or guaranteed linear runtime. Snapshot c
 | `detail_logging` | `debug` | `debug`: item records require server debug logging. `info`: show each item at info level. `off`: hide routine item records. Errors remain visible. |
 | `audit_logging` | `false` | Set true to capture source evidence for independent calculation checks. |
 
-`user_summary` and `run_summary` stay at info level. `run_progress` reports phase and progress when work continues on another callback. Use those events to watch a run without enabling every item record. Temporarily set `detail_logging=info` when reviewing individual proposed changes; it can generate large logs.
+Summaries and `run_progress` stay at info level. Use them to watch a run; `runPreflightSongs` counts bulk song rows read across the run, while `userPreflightSongs` covers the current user. Temporarily use `detail_logging=info` for individual decisions; it can generate large logs.
 
 In a dry run, `updated` counts proposed changes; with writes enabled, it counts verified changes. `preserved` counts protected ratings. `ratingCounts` gives the distribution from 0 through 5, with index 0 representing clears. `usersSkipped` explains users with no item evaluations. For sizes, check `peakSnapshotBytes` and `snapshotLimitBytes`. The full event fields and counter identities are in the [technical reference](docs/REFERENCE.md#logs-and-counters).
 
@@ -164,15 +164,17 @@ Ratings reflect their **source read time**, not one frozen database state at run
 
 ### Independently verify a calculation
 
-Enable `audit_logging=true` and start a fresh run. Audit mode forces full scans and logs settings, source song ratings/structured artist IDs, and item outcomes at info level, even if `detail_logging` is debug or off.
+Set **`audit_logging=true`**, apply settings/restart, and request a fresh dry run. **`detail_logging=info` alone does not enable audits.** Startup and summaries show `auditLogging`; audit mode forces full scans and logs settings, source song ratings/structured credits, and outcomes at info level.
 
 Capture **one complete, uninterrupted run**, from `run_started` through `run_summary`, then run the verifier from a checkout of this repository:
 
 ```bash
 python3 scripts/verify-audit.py /path/to/local-audit.log
+# Explain one artist, using an ID and username from your log:
+python3 scripts/verify-audit.py /path/to/local-audit.log --explain-artist ARTIST_ID --user USERNAME
 ```
 
-The verifier uses Python's standard library and exact fractions to independently reconstruct attribution, coverage, scores, rounded targets, and summary counts. Missing evidence or a mismatch returns a nonzero exit code. It checks calculations against the captured read-time data, not ownership provenance or later database changes.
+The standard-library verifier checks the whole run using exact fractions. Missing evidence or a mismatch fails with a nonzero exit code. Artist explanations list per-album song IDs, credits, histograms, quotas, and scores; omit `--user` to explain all matching users. Checks use captured read-time data, not later database contents or ownership provenance.
 
 Audit logs contain private user identifiers, song IDs, and credit relationships. Keep them local and turn audit logging off afterward, restarting Navidrome where required.
 

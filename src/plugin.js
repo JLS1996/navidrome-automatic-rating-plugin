@@ -1,6 +1,7 @@
 "use strict";
 
-const VERSION = "0.1.2";
+const VERSION = "0.1.3";
+const AUDIT_SOURCE_FORMAT = "structured_song_ratings_v1";
 const PREFIX = "automatic-ratings:v1:";
 const STATE_KEY = PREFIX + "scan";
 const MANUAL_KEY = PREFIX + "manual";
@@ -428,8 +429,9 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     Object.assign(state, { active: true, signature: sig, users, grants, startedAt: now() });
     metricsState = state; metrics = freshMetrics(state);
     saveState(state);
-    event("info", "run_started", { users: users.length, libraries: grants.length, dryRun: settings.dry_run });
-    if (settings.audit_logging) event("info", "audit_config", { settings, sourceFormat: "structured_song_ratings_v1" });
+    event("info", "run_started", { users: users.length, libraries: grants.length,
+      ...auditStatus(settings), dryRun: settings.dry_run });
+    if (settings.audit_logging) event("info", "audit_config", { settings, sourceFormat: AUDIT_SOURCE_FORMAT });
     return { started: true };
   }
   function checkContext(state, settings) {
@@ -464,7 +466,8 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     event("info", "user_summary", { user: c.user, albums: c.albumsSummary, artists: c.artistsSummary,
       sourceErrors: c.sourceErrors, sourceComplete: c.complete, scannedSongs: c.scannedSongs,
       ratedSongs: c.ratedSongs, sourceVerified: c.sourceVerified, ...sourceTimes(c),
-      skipped: c.skipped, skipReason: c.skipReason, preflightSongs: c.preflightSongs, ...snapshotMetrics(state),
+      skipped: c.skipped, skipReason: c.skipReason, preflightSongs: c.preflightSongs, preflightSongsScope: "user",
+      ...auditStatus(settings), ...snapshotMetrics(state),
       dryRun: settings.dry_run, elapsedMs: Math.max(0, now() - c.startedAt) });
     addCounts(state.totals.albums, c.albumsSummary); addCounts(state.totals.artists, c.artistsSummary);
     state.totals.sourceErrors += c.sourceErrors; state.totals.scannedSongs += c.scannedSongs;
@@ -476,10 +479,14 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
       state.active = false; state.completedAt = now();
       saveState(state);
       event("info", "run_summary", { users: state.usersCompleted, ...state.totals,
-        ...sourceTimes(state),
+        preflightSongsScope: "run", ...auditStatus(settings), ...sourceTimes(state),
         ...snapshotMetrics(state),
         dryRun: settings.dry_run, elapsedMs: Math.max(0, state.completedAt - state.startedAt) });
     }
+  }
+  function auditStatus(settings) {
+    return { auditLogging: settings.audit_logging,
+      auditSourceFormat: settings.audit_logging ? AUDIT_SOURCE_FORMAT : null };
   }
   function sourceTimes(value) {
     return { ratingsAsOf: value.sourceReadMode === "album" ? "per_album_read_time" :
@@ -931,7 +938,7 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     const settings = readSettings(readConfig);
     scheduleDaily(settings); recurringWorker(settings);
     event("info", "enabled", { version: VERSION, runTimeUTC: settings.run_time_utc,
-      dryRun: settings.dry_run, attribution: settings.artist_attribution, callbackBudgetMs: BUDGET_MS });
+      dryRun: settings.dry_run, attribution: settings.artist_attribution, ...auditStatus(settings), callbackBudgetMs: BUDGET_MS });
     if (!assignedUsers().length || !grantedLibraries().length) event("warn", "missing_grants", { action: "grant_users_and_libraries_then_restart" });
   }
   function triggers(settings) {
@@ -975,12 +982,14 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
         batches++; units += result.units;
         if (!result.active) return { batches, units, active: false };
       } while (now() < deadline);
+      const userPreflightSongs = state.current?.preflightSongs ?? 0;
       event("info", "run_progress", { usersCompleted: state.usersCompleted, users: state.users.length,
         user: state.current?.user ?? null, phase: state.current?.phase ?? "next_user",
         scannedAlbums: state.current?.index ?? 0, verifiedAlbums: state.current?.verifyIndex ?? 0,
         totalAlbums: state.current?.albums.length ?? 0, evaluatedArtists: state.current?.artistIndex ?? 0,
         totalArtists: state.current?.artistIds.length ?? 0, batches, units,
-        preflightSongs: state.current?.preflightSongs ?? 0, ...snapshotMetrics(state),
+        preflightSongs: userPreflightSongs, preflightSongsScope: "user", userPreflightSongs,
+        runPreflightSongs: state.totals.preflightSongs + userPreflightSongs, ...snapshotMetrics(state),
         callbackMs: Math.max(0, now() - callbackStartedAt) });
       return { batches, units, active: true };
     } finally { recurringWorker(settings); }

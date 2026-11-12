@@ -146,6 +146,43 @@ test("snapshot telemetry retains the active peak after completion and across fre
   assert.equal(h.events("run_summary")[0].peakSnapshotBytes,metric.peakSnapshotBytes);
   assert.ok(h.events("run_progress").every(e=>e.snapshotLimitBytes===24*1024*1024));
 });
+test("progress distinguishes current-user bulk rows from cumulative run rows across restarts and user boundaries",()=>{
+  const h=fixture({pageCap:1}),config={batch_size:1};
+  h.before=(name,request)=>{
+    if(name==="subsonicapi_call")h.clock+=4000;
+    if(name==="kvstore_set"&&request.key==="automatic-ratings:v1:scan"){
+      const state=decode(request.value);
+      if(state.active&&state.usersCompleted===1&&state.current===null)h.clock+=20000;
+    }
+  };
+  let p=h.make(config);p.initialize();p.startRun();let callbacks=0;
+  while(h.make(config).onSchedule({payload:"worker"}).active)assert.ok(++callbacks<100);
+  const summaries=h.events("user_summary"),total=h.events("run_summary")[0],progress=h.events("run_progress");
+  assert.ok(progress.some(e=>e.user===null&&e.usersCompleted===1));
+  assert.ok(progress.some(e=>e.user==="example-unrated"&&e.userPreflightSongs>0));
+  let previous=0;
+  for(const e of progress){
+    assert.equal(e.preflightSongsScope,"user");assert.equal(e.preflightSongs,e.userPreflightSongs);
+    const completed=summaries.slice(0,e.usersCompleted).reduce((n,s)=>n+s.preflightSongs,0);
+    assert.equal(e.runPreflightSongs,completed+e.userPreflightSongs);assert.ok(e.runPreflightSongs>=previous);
+    if(e.user===null)assert.equal(e.userPreflightSongs,0);
+    previous=e.runPreflightSongs;
+  }
+  assert.ok(summaries.every(s=>s.preflightSongsScope==="user"));assert.equal(total.preflightSongsScope,"run");
+  assert.equal(total.preflightSongs,summaries.reduce((n,s)=>n+s.preflightSongs,0));assert.ok(total.preflightSongs>=previous);
+});
+test("startup and summaries expose audit status independently of item log level",()=>{
+  for(const audit_logging of [false,true]){
+    const h=fixture();h.run({audit_logging,detail_logging:audit_logging?"off":"info"});
+    for(const e of h.events().filter(e=>["enabled","run_started","user_summary","run_summary"].includes(e.event))){
+      assert.equal(e.auditLogging,audit_logging);
+      assert.equal(e.auditSourceFormat,audit_logging?"structured_song_ratings_v1":null);
+    }
+    assert.equal(h.events("audit_config").length,audit_logging?1:0);
+    assert.equal(h.events("source_album").length,audit_logging?8:0);
+    assert.deepEqual(h.writes,[]);
+  }
+});
 test("bulk state capacity aborts before an uncheckpointable proof can be used",()=>{
   const h=fixture({users:[user]});h.albums[0].songs=Array.from({length:20},(_,n)=>({
     id:`${n}${"漢".repeat(900)}`,albumId:"album-a",userRating:0,artists:[ref("performer-one")]}));

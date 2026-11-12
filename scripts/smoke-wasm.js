@@ -33,6 +33,8 @@ async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";a
   const artist=h.events("item").find(e=>e.kind==="artist"&&e.id==="album-artist"&&e.user==="example-reader");
   assert.equal(artist.proposedRating,3);assert.equal(artist.totalSongs,5);
   assert.equal(h.events("run_summary").length,1);
+  assert.equal(h.events("run_summary")[0].auditLogging,false);
+  assert.equal(h.events("run_summary")[0].auditSourceFormat,null);
   assert.equal(h.events("user_summary")[1].skipped,true);
   assert.equal(h.calls.filter(c=>c.request.uri?.startsWith("getAlbum?")&&c.request.uri.includes("u=example-unrated")).length,0);
   // Every invocation uses a fresh WASM instance, as Navidrome does.
@@ -68,11 +70,19 @@ async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";a
   assert.equal(h.schedules.size,2);
   for(const[key,value]of h.storage)if(key.includes("owner:"))assert.equal(decode(value).pending,null);
   const audit=fixture(),auditConfig={run_now:"true",audit_logging:"true"};
+  audit.albums[0].artists.push({id:"collaborator",name:"Example collaborator"});
   await invoke(audit,auditConfig,"nd_on_init");await worker(audit,auditConfig);
+  assert.equal(audit.events("run_summary")[0].auditLogging,true);
+  assert.equal(audit.events("run_summary")[0].auditSourceFormat,"structured_song_ratings_v1");
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),"automatic-ratings-wasm-audit-"));
   try{const file=path.join(temp,"fixture.log");fs.writeFileSync(file,audit.logs.map(([,line])=>line).join("\n"));
-    const checked=spawnSync("python3",[path.resolve(__dirname,"verify-audit.py"),file],{encoding:"utf8",timeout:15000});
-    assert.equal(checked.status,0,checked.stdout+checked.stderr);assert.equal(JSON.parse(checked.stdout).verifiedArtists,4);
+    const checked=spawnSync("python3",[path.resolve(__dirname,"verify-audit.py"),file,
+      "--explain-artist","collaborator","--user","example-reader"],{encoding:"utf8",timeout:15000});
+    assert.equal(checked.status,0,checked.stdout+checked.stderr);const report=JSON.parse(checked.stdout);
+    assert.equal(report.verifiedArtists,6);assert.equal(report.artistExplanations.length,1);
+    assert.equal(report.artistExplanations[0].calculatedRating,5);
+    assert.deepEqual(report.artistExplanations[0].contributions[0].songs,
+      [{id:"album-a-song-0",rating:5,artistIds:["album-artist","collaborator"]}]);
   }finally{fs.rmSync(temp,{recursive:true,force:true});}
-  console.log("Compiled WASM smoke passed: independent outputs, exact fractional ties, dry-run isolation, ownership, clears, performing credits, safe unrated-user skips, native host imports, scheduler rearming, and independent audit verification.");
+  console.log("Compiled WASM smoke passed: independent outputs, exact fractional ties, dry-run isolation, ownership, clears, performing credits, safe unrated-user skips, native host imports, scheduler rearming, audit status, and independent artist explanations.");
 })().catch(error=>{console.error(error);process.exitCode=1;});

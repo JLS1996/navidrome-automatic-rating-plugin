@@ -69,7 +69,7 @@ jobs:
           test "$(unzip -Z -1 dist/automatic-ratings.ndp | LC_ALL=C sort)" = "$(printf 'LICENSE\nmanifest.json\nplugin.wasm\n' | LC_ALL=C sort)"
           unzip -l dist/automatic-ratings.ndp
           cd dist
-          sha256sum automatic-ratings.ndp > automatic-ratings.ndp.sha256
+          sha256sum -c automatic-ratings.ndp.sha256
       - name: Smoke-test compiled WASM with simulated host functions
         run: npm run test:wasm
       - name: Check scaling and simulated writes with native Extism

@@ -38,6 +38,8 @@ dryRun, reason, error
 
 Unavailable item values are null. Routine item records follow `detail_logging`; errors remain visible. Audit mode promotes item records to info and also emits `audit_config` and `source_album` evidence.
 
+`enabled`, `run_started`, `user_summary`, and `run_summary` expose `auditLogging` and `auditSourceFormat` (`structured_song_ratings_v1`, or null when disabled). These fields confirm whether independent evidence was requested; `detail_logging=info` alone never enables it.
+
 `user_summary` and `run_summary` contain separate `albums` and `artists` counters. Primary outcomes are mutually exclusive:
 
 ```text
@@ -57,6 +59,18 @@ cleared = ratingCounts[0]
 
 Skipped users have `skipped:true`, `skipReason:"no_rated_songs_or_eligible_clears"`, zero processed items/distributions, and no item events. `run_summary.users` includes them; `usersSkipped` counts them. `scannedSongs` includes the validated source used for either scan mode. `preflightSongs` separately counts bulk song rows read, including preliminary rows discarded on fallback. Ordinary full scans of wholly unrated users emit `user_unrated` instead.
 
+### Progress scopes
+
+`run_progress` reports the current user's phase, album/artist cursors and totals, plus the callback's `batches`, `units`, and `callbackMs`. Album and artist cursors reset at each user boundary. Bulk-read counters count **song rows returned**, not pages or unique songs across users:
+
+| Field | Scope |
+|---|---|
+| `userPreflightSongs` | Rows read for the current user across precheck phases, or 0 between users. |
+| `runPreflightSongs` | Completed users' rows plus the current user's rows; cumulative within the run, including after resume. |
+| `preflightSongs` | Compatibility alias for `userPreflightSongs` in progress; `preflightSongsScope:"user"` makes this explicit. |
+
+Summaries retain `preflightSongs`, labelled `preflightSongsScope:"user"` or `"run"`. These counters include early-fallback pages even though their ratings are discarded; they measure read cost, unlike `scannedSongs`.
+
 ### Read-time fields
 
 `sourceReadMode` is `album`, `song_pages`, or (for a mixed run) `mixed`. Corresponding `ratingsAsOf` values are `per_album_read_time`, `per_song_page_read_time`, and `per_source_read_time`.
@@ -64,6 +78,12 @@ Skipped users have `skipped:true`, `skipReason:"no_rated_songs_or_eligible_clear
 `sourceReadStartedAt` and `sourceReadCompletedAt` bound the source reads actually used; discarded preliminary reads are excluded. `sourceVerifiedAt` marks the end of a successful full verification sweep. Times are UTC Unix milliseconds, or null when unavailable. Run-level values are the earliest start, latest completion, and latest successful **user** verification; that final verification time does not apply to every user.
 
 `sourceVerified` is false for skipped users, unnecessary second passes, or failed verification. `sourceComplete` means no source error was observed, not that the library stayed frozen until completion. Audit verification checks captured read-time calculations, not later database contents or ownership provenance.
+
+### Independent artist explanations
+
+Enable `audit_logging`, then capture one complete, uninterrupted run from `run_started` through `run_summary`. `source_album` events contain raw song/rating/performing-credit tuples and structured album artist IDs; the verifier independently deduplicates each song's selected credits. It uses every `getAlbum.artists` ID in album-artist mode, rather than the database's primary `media_file.album_artist_id`.
+
+`python3 scripts/verify-audit.py LOG --explain-artist ARTIST_ID [--user USERNAME]` verifies **the entire run** before returning `artistExplanations`. Each explanation contains the selected attribution, histogram (0–5), counts, quota, approximate `score`, exact rational `scoreExact`, `calculatedRating`, logged action/existing/proposed ratings, and per-album song/credit evidence. `calculatedRating:0` means insufficient coverage; a preserved item's `proposedRating` remains null even when its calculated rating is positive. Omitting `--user` selects every matching user. Unknown selections fail; ordinary verification output is unchanged. Keep source logs and explanations local.
 
 ### Storage metrics
 
@@ -89,7 +109,7 @@ npm run build
 npm run test:wasm
 ```
 
-The build creates `dist/automatic-ratings.ndp` containing exactly `manifest.json`, `plugin.wasm`, and `LICENSE`. Compiled-WASM tests use simulated host functions and fictional data, including write/clear branches and fresh callback instances. The pinned npm SDK is a development dependency; the deployed plugin requires neither npm nor Python.
+The build creates `dist/automatic-ratings.ndp` containing exactly `manifest.json`, `plugin.wasm`, and `LICENSE`, plus the adjacent `automatic-ratings.ndp.sha256` checksum. Run `sha256sum -c automatic-ratings.ndp.sha256` from `dist` to verify it. Compiled-WASM tests use simulated host functions and fictional data, including write/clear branches and fresh callback instances. The pinned npm SDK is a development dependency; the deployed plugin requires neither npm nor Python.
 
 [CI](../.github/workflows/build.yml) tests, builds, verifies package contents, runs native scaling/write checks, and uploads an artifact/checksum. Matching version tags publish prereleases with the package and checksum.
 

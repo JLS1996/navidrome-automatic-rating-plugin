@@ -1,6 +1,7 @@
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
+const { createHash } = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const root = path.resolve(__dirname, "..");
 const dist = path.join(root, "dist");
@@ -22,4 +23,7 @@ fs.copyFileSync(path.join(root, "LICENSE"), path.join(dist, "LICENSE"));
 const archive = path.join(dist, "automatic-ratings.ndp");
 if (fs.existsSync(archive)) fs.unlinkSync(archive);
 run("zip", ["-q", "-X", "automatic-ratings.ndp", "manifest.json", "plugin.wasm", "LICENSE"], { cwd: dist });
+const checksum = createHash("sha256").update(fs.readFileSync(archive)).digest("hex");
+fs.writeFileSync(archive + ".sha256", `${checksum}  ${path.basename(archive)}\n`);
 console.log(`Built ${archive}`);
+console.log(`Checksum ${archive}.sha256`);

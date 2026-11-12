@@ -4,9 +4,9 @@ const {spawnSync}=require("node:child_process");
 const fs=require("node:fs"),os=require("node:os");
 const {fixture,ref}=require("./helpers");
 const verifier=path.resolve(__dirname,"../scripts/verify-audit.py");
-function verify(input){const dir=fs.mkdtempSync(path.join(os.tmpdir(),"automatic-ratings-audit-"));
+function verify(input,args=[]){const dir=fs.mkdtempSync(path.join(os.tmpdir(),"automatic-ratings-audit-"));
   try{const file=path.join(dir,"fixture.jsonl");fs.writeFileSync(file,input);
-    const r=spawnSync("python3",[verifier,file],{encoding:"utf8",timeout:15000});
+    const r=spawnSync("python3",[verifier,file,...args],{encoding:"utf8",timeout:15000});
     if(r.error)throw r.error;assert.ok(r.stdout,r.stderr);return {status:r.status,...JSON.parse(r.stdout)};
   }finally{fs.rmSync(dir,{recursive:true,force:true});}}
 function plain(events){return events.map(e=>JSON.stringify(e)).join("\n");}
@@ -63,4 +63,39 @@ test("verifier requires matching/adopted targets and independently checks quota-
   const quota=structuredClone(h.events());quota.find(e=>e.event==="user_summary").albums.quotaFailures++;
   quota.find(e=>e.event==="run_summary").albums.quotaFailures++;
   assert.equal(verify(plain(quota)).status,1);
+});
+test("artist explanations trace collaboration credits once per song and can select one user",()=>{
+  const h=audited(),log=plain(h.events());
+  const all=verify(log,["--explain-artist","collaborator"]);assert.equal(all.status,0);
+  assert.equal(all.verifiedArtists,6);assert.equal(all.artistExplanations.length,2);
+  const result=verify(log,["--explain-artist","collaborator","--user","example-reader"]);
+  assert.equal(result.status,0);assert.equal(result.artistExplanations.length,1);
+  const e=result.artistExplanations[0];assert.equal(e.attribution,"album_artist");
+  assert.equal(e.totalSongs,1);assert.equal(e.calculatedRating,5);assert.equal(e.scoreExact,"5");
+  assert.deepEqual(e.histogram,[0,0,0,0,0,1]);assert.equal(e.contributions.length,1);
+  assert.equal(e.contributions[0].albumId,"album-a");
+  assert.deepEqual(e.contributions[0].songs,[{id:"album-a-song-0",rating:5,artistIds:["album-artist","collaborator"]}]);
+  const unrated=all.artistExplanations.find(e=>e.user==="example-unrated");
+  assert.equal(unrated.calculatedRating,0);assert.equal(unrated.scoreExact,null);assert.equal(unrated.proposedRating,null);
+});
+test("artist explanations respect performing attribution and distinguish preserved values from calculated ones",()=>{
+  const performing=verify(plain(audited({artist_attribution:"performing_artist"}).events()),
+    ["--explain-artist","guest-artist","--user","example-reader"]);
+  assert.equal(performing.status,0);const e=performing.artistExplanations[0];
+  assert.equal(e.attribution,"performing_artist");assert.equal(e.totalSongs,1);assert.equal(e.calculatedRating,1);
+  assert.deepEqual(e.contributions[0].songs,[{id:"album-b-song-0",rating:1,artistIds:["guest-artist","performer-one"]}]);
+  const h=fixture();h.setRating("example-reader","artist","album-artist",4);h.run({audit_logging:true});
+  const preserved=verify(plain(h.events()),["--explain-artist","album-artist","--user","example-reader"]);
+  assert.equal(preserved.status,0);const p=preserved.artistExplanations[0];
+  assert.equal(p.calculatedRating,3);assert.equal(p.scoreExact,"29/9");
+  assert.equal(p.existingRating,4);assert.equal(p.proposedRating,null);assert.equal(p.action,"preserve");
+});
+test("artist selection rejects missing IDs/users and still verifies unrelated source calculations",()=>{
+  const h=audited(),log=plain(h.events());
+  for(const args of [["--explain-artist","missing"],["--explain-artist","collaborator","--user","missing"],
+    ["--explain-artist","guest-artist"],["--user","example-reader"]]){
+    const result=verify(log,args);assert.equal(result.status,1);assert.equal(result.ok,false);
+  }
+  const events=h.events();events.find(e=>e.event==="item"&&e.kind==="album"&&e.id==="album-b").score=4;
+  assert.equal(verify(plain(events),["--explain-artist","collaborator"]).status,1);
 });

@@ -67,17 +67,20 @@ def calculate(histogram, kind, settings):
         "requiredRatedSongs": required, "meetsThreshold": meets, "score": score, "rating": rating}
 
 
-def verify(events):
+def verify(events, explain_artist=None, user_filter=None):
+    require(user_filter is None or explain_artist is not None, "--user requires --explain-artist")
     starts = [i for i, e in enumerate(events) if e.get("event") == "run_started"]
     ends = [i for i, e in enumerate(events) if e.get("event") == "run_summary"]
     require(len(starts) == len(ends) == 1 and starts[0] < ends[0], "Supply exactly one complete run from run_started through run_summary")
     events = events[starts[0]:ends[0]+1]
     configs = [e for e in events if e.get("event") == "audit_config"]
-    require(len(configs) == 1 and configs[0].get("sourceFormat") == "structured_song_ratings_v1", "A complete audit_logging=true run is required")
+    require(len(configs) == 1 and configs[0].get("sourceFormat") == "structured_song_ratings_v1",
+        "Enable audit_logging=true, apply settings, then capture one fresh, complete run; detail_logging=info alone does not enable audits")
     settings = configs[0]["settings"]
     require(settings.get("audit_logging") is True, "Audit logging was disabled")
     users, albums, artists, seen_songs = {}, {}, {}, collections.defaultdict(set)
     items = collections.defaultdict(list)
+    contributions = collections.defaultdict(dict)
     for event in events:
         name = event.get("event")
         if name == "source_album":
@@ -99,6 +102,11 @@ def verify(events):
                 histogram[rating] += 1
                 for artist_id in set(credit_ids):
                     artists.setdefault((user, artist_id), [0]*6)[rating] += 1
+                    if artist_id == explain_artist and (user_filter is None or user_filter == user):
+                        contribution = contributions[user].setdefault(album_id,
+                            {"albumId": album_id, "histogram": [0]*6, "songs": []})
+                        contribution["histogram"][rating] += 1
+                        contribution["songs"].append({"id": song_id, "rating": rating, "artistIds": sorted(set(credit_ids))})
             albums[key] = histogram
         elif name == "item":
             require(event.get("action") in ACTIONS and event.get("kind") in ("album", "artist"), "Unknown item outcome")
@@ -146,20 +154,40 @@ def verify(events):
         require(events[-1][plural]["ratingCounts"] == [sum(s[plural]["ratingCounts"][i] for s in users.values()) for i in range(6)], "Run/user distribution mismatch")
     for field in ("scannedSongs", "ratedSongs", "sourceErrors"):
         require(events[-1][field] == sum(s[field] for s in users.values()), f"Run/user {field} mismatch")
-    return {"ok": True, "users": len(users), "sourceAlbums": len(albums),
+    report = {"ok": True, "users": len(users), "sourceAlbums": len(albums),
         "verifiedAlbums": verified["album"], "verifiedArtists": verified["artist"]}
+    if explain_artist is not None:
+        selected = [item for user in sorted(users) for item in items[user]
+            if item["kind"] == "artist" and item["id"] == explain_artist and (user_filter is None or user == user_filter)]
+        require(selected, "No evaluated artist matches the requested ID and user; use IDs from this audit log")
+        report["artistExplanations"] = []
+        for item in selected:
+            user = item["user"]
+            histogram = artists[user, explain_artist]
+            result = calculate(histogram, "artist", settings)
+            report["artistExplanations"].append({"user": user, "id": explain_artist, "name": item["name"],
+                "attribution": settings["artist_attribution"], "histogram": histogram,
+                **{key: value for key, value in result.items() if key not in ("score", "rating")},
+                "score": float(result["score"]) if result["score"] is not None else None,
+                "scoreExact": str(result["score"]) if result["score"] is not None else None,
+                "calculatedRating": result["rating"], "existingRating": item["existingRating"],
+                "proposedRating": item["proposedRating"], "action": item["action"],
+                "contributions": [contributions[user][album_id] for album_id in sorted(contributions[user])]})
+    return report
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", help="Path to one complete local audit log, or - for standard input")
+    parser.add_argument("--explain-artist", metavar="ARTIST_ID", help="After verifying the entire run, explain this artist's song contributions")
+    parser.add_argument("--user", metavar="USERNAME", help="Limit --explain-artist to one user; otherwise explain every matching user")
     args = parser.parse_args()
     try:
         if args.log == "-":
-            result = verify(read_events(sys.stdin))
+            result = verify(read_events(sys.stdin), args.explain_artist, args.user)
         else:
             with open(args.log, encoding="utf-8") as source:
-                result = verify(read_events(source))
+                result = verify(read_events(source), args.explain_artist, args.user)
         print(json.dumps(result))
     except (ValueError, KeyError, TypeError, ArithmeticError, OSError) as error:
         print(json.dumps({"ok": False, "error": str(error)}))
