@@ -85,7 +85,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          command -v ffmpeg
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
           curl -fL --retry 3 -o /tmp/navidrome-host.tar.gz \
             https://github.com/navidrome/navidrome/releases/download/v0.64.2/navidrome_0.64.2_linux_amd64.tar.gz
           echo 'fdd87fd107818667c2c50bc24dc6ce856962c795b3822a91f95c066cfad2c53e  /tmp/navidrome-host.tar.gz' | sha256sum -c -
