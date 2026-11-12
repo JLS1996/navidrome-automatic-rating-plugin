@@ -81,7 +81,20 @@ async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";a
   };
   await invoke(guarded,guardConfig,"nd_on_init");await worker(guarded,guardConfig);
   assert.equal(scanStarted,true);assert.deepEqual(guarded.writes,[]);
-  assert.equal(decode(guarded.storage.get(guardKey)).pending.target,5);
+  assert.equal(decode(guarded.storage.get(guardKey)).pending,null);
+  for (const kind of ["album", "artist"]) {
+    const concurrent=fixture({users:["example-reader"]}),id=kind==="album"?"album-a":"album-artist";
+    const key=ownerKey("example-reader",kind,id),cfg={run_now:"true",dry_run:"false",
+      rate_albums:String(kind==="album"),rate_artists:String(kind==="artist")};
+    concurrent.after=(name,request)=>{
+      if(name==="kvstore_set"&&request.key===key&&decode(request.value).pending)
+        concurrent.setRating("example-reader",kind,id,2);
+    };
+    await invoke(concurrent,cfg,"nd_on_init");await worker(concurrent,cfg);
+    assert.equal(concurrent.getRating("example-reader",kind,id),2);
+    assert.equal(concurrent.writes.some(w=>w.id===id),false);
+    assert.equal(decode(concurrent.storage.get(key)).pending,null);
+  }
   const excluded=fixture({users:["example-reader"]}),excludedConfig={run_now:"true",dry_run:"false",
     album_one_star_weight:"0",artist_one_star_weight:"0",album_rating_policy:"replace",artist_rating_policy:"replace"};
   excluded.setRating("example-reader","album","album-b",4);

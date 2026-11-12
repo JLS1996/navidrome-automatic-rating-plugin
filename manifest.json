@@ -31,197 +31,209 @@
         "rate_albums": {
           "type": "boolean",
           "title": "Generate album ratings",
-          "default": true
+          "default": true,
+          "description": "Calculate each album from your song ratings on that album."
         },
         "skip_unrated_users": {
           "type": "boolean",
-          "title": "Skip unrated users when no rating needs changing",
+          "title": "Skip users with nothing to update",
           "default": true,
-          "description": "Use validated paginated song/artist reads to skip users with no rated songs and no eligible clears. Incomplete results or ratings requiring evaluation fall back to the full scan. Audit logging uses a full scan."
+          "description": "Speeds up scans for users with no song ratings. Falls back to a full scan whenever changes may be needed."
         },
         "audit_logging": {
           "type": "boolean",
-          "title": "Log source evidence for independent verification",
+          "title": "Include source evidence in logs",
           "default": false,
-          "description": "Log settings, structured artist IDs, song IDs/ratings, and outcomes at info level. Forces full scans for every user, bypassing the unrated-user precheck (preflightSongs stays 0). Can substantially increase runtime and private log volume. Keep off for daily use; verify a complete local run with scripts/verify-audit.py."
+          "description": "For troubleshooting or independent verification. Logs song IDs, ratings, artist credits, and settings; forces a full scan and can produce large, private logs."
         },
         "rate_artists": {
           "type": "boolean",
-          "title": "Generate artist ratings directly from songs",
-          "default": true
+          "title": "Generate artist ratings",
+          "default": true,
+          "description": "Calculate each artist directly from your song ratings, independently of album ratings."
         },
         "artist_attribution": {
           "type": "string",
-          "title": "Artist attribution",
+          "title": "Which artists receive each song?",
           "default": "album_artist",
-          "enum": [
-            "album_artist",
-            "performing_artist"
-          ],
-          "description": "Album artist uses all structured album-artist credits. Performing artist uses structured song-artist credits; names are never split."
+          "description": "Album artists uses the album credits; performing artists uses each song’s credits, including guests. A song counts once per credited artist.",
+          "oneOf": [
+            {
+              "const": "album_artist",
+              "title": "Album artists"
+            },
+            {
+              "const": "performing_artist",
+              "title": "Performing artists (including guests)"
+            }
+          ]
         },
         "album_rating_policy": {
           "type": "string",
-          "title": "Album rating policy",
+          "title": "Existing ratings",
           "default": "preserve",
-          "enum": [
-            "preserve",
-            "replace"
-          ],
-          "description": "Preserve protects existing unmanaged ratings and detected manual edits, while refreshing this plugin's output. Replace explicitly permits overwriting existing ratings and adopting matching results. No initial wipe is performed."
+          "description": "Preserve keeps ratings set by you or another plugin, including detected manual edits. Replace may overwrite them and take over matching ratings.",
+          "oneOf": [
+            {
+              "const": "preserve",
+              "title": "Preserve manual ratings"
+            },
+            {
+              "const": "replace",
+              "title": "Replace existing ratings"
+            }
+          ]
         },
         "artist_rating_policy": {
           "type": "string",
-          "title": "Artist rating policy",
+          "title": "Existing ratings",
           "default": "preserve",
-          "enum": [
-            "preserve",
-            "replace"
-          ],
-          "description": "Preserve protects existing unmanaged ratings and detected manual edits, while refreshing this plugin's output. Replace explicitly permits overwriting existing ratings and adopting matching results. No initial wipe is performed."
+          "description": "Preserve keeps ratings set by you or another plugin, including detected manual edits. Replace may overwrite them and take over matching ratings.",
+          "oneOf": [
+            {
+              "const": "preserve",
+              "title": "Preserve manual ratings"
+            },
+            {
+              "const": "replace",
+              "title": "Replace existing ratings"
+            }
+          ]
         },
         "dry_run": {
           "type": "boolean",
-          "title": "Preview without changing ratings",
+          "title": "Preview only — do not change ratings",
           "default": true,
-          "description": "Preview both independent outputs. Ownership records are not changed in dry runs."
+          "description": "Leave on to review proposed changes in the Navidrome logs. Turn off to apply them on the next run."
         },
         "album_clear_below_threshold": {
           "type": "boolean",
-          "title": "Clear album ratings below quota",
+          "title": "Clear album rating when coverage is too low",
           "default": true,
-          "description": "Clear eligible ratings only after validating the complete source. Preserve policy protects unmanaged/manual ratings. Artists require a complete, rechecked source scan. Empty sources never trigger clearing. Items whose rated songs are all excluded keep their current rating."
+          "description": "Turn off to keep the last rating below either coverage limit. Preserve still protects manual ratings. Empty sources and sources with every rated song excluded are never cleared."
         },
         "album_minimum_rated_percent": {
           "type": "integer",
-          "title": "Album: minimum percentage of rated songs",
+          "title": "Minimum rated songs (%)",
           "default": 30,
           "minimum": 0,
           "maximum": 100,
-          "description": "Unrated songs count toward coverage but stay out of the mean. Songs with zero weight are excluded from the coverage denominator. The percentage quota is rounded up."
+          "description": "Both coverage limits must be met. For example, 30% of 12 eligible songs requires 4 rated songs. Unrated songs count toward the total; zero-weight songs do not."
         },
         "album_minimum_rated_songs": {
           "type": "integer",
-          "title": "Album: minimum number of rated songs",
+          "title": "Minimum rated songs (count)",
           "default": 1,
           "minimum": 1,
           "maximum": 1000000,
-          "description": "Minimum rated songs with positive weight. Both the percentage and count quota must be met."
+          "description": "Require at least this many rated songs with positive weight, as well as the percentage above."
         },
         "album_one_star_weight": {
           "type": "number",
-          "title": "Album: 1-star song weight",
+          "title": "1-star songs",
           "default": 1,
           "minimum": 0,
           "maximum": 10,
-          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
+          "description": "0 excludes this star level from scoring and coverage."
         },
         "album_two_star_weight": {
           "type": "number",
-          "title": "Album: 2-star song weight",
+          "title": "2-star songs",
           "default": 2,
           "minimum": 0,
-          "maximum": 10,
-          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
+          "maximum": 10
         },
         "album_three_star_weight": {
           "type": "number",
-          "title": "Album: 3-star song weight",
+          "title": "3-star songs",
           "default": 3,
           "minimum": 0,
-          "maximum": 10,
-          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
+          "maximum": 10
         },
         "album_four_star_weight": {
           "type": "number",
-          "title": "Album: 4-star song weight",
+          "title": "4-star songs",
           "default": 4,
           "minimum": 0,
-          "maximum": 10,
-          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
+          "maximum": 10
         },
         "album_five_star_weight": {
           "type": "number",
-          "title": "Album: 5-star song weight",
+          "title": "5-star songs",
           "default": 5,
           "minimum": 0,
-          "maximum": 10,
-          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
+          "maximum": 10
         },
         "artist_clear_below_threshold": {
           "type": "boolean",
-          "title": "Clear artist ratings below quota",
+          "title": "Clear artist rating when coverage is too low",
           "default": true,
-          "description": "Clear eligible ratings only after validating the complete source. Preserve policy protects unmanaged/manual ratings. Artists require a complete, rechecked source scan. Empty sources never trigger clearing. Items whose rated songs are all excluded keep their current rating."
+          "description": "Turn off to keep the last rating below either coverage limit. Preserve still protects manual ratings. Empty sources and sources with every rated song excluded are never cleared."
         },
         "artist_minimum_rated_percent": {
           "type": "integer",
-          "title": "Artist: minimum percentage of rated songs",
+          "title": "Minimum rated songs (%)",
           "default": 30,
           "minimum": 0,
           "maximum": 100,
-          "description": "Unrated songs count toward coverage but stay out of the mean. Songs with zero weight are excluded from the coverage denominator. The percentage quota is rounded up."
+          "description": "Both coverage limits must be met. For example, 30% of 12 eligible songs requires 4 rated songs. Unrated songs count toward the total; zero-weight songs do not."
         },
         "artist_minimum_rated_songs": {
           "type": "integer",
-          "title": "Artist: minimum number of rated songs",
+          "title": "Minimum rated songs (count)",
           "default": 1,
           "minimum": 1,
           "maximum": 1000000,
-          "description": "Minimum rated songs with positive weight. Both the percentage and count quota must be met."
+          "description": "Require at least this many rated songs with positive weight, as well as the percentage above."
         },
         "artist_one_star_weight": {
           "type": "number",
-          "title": "Artist: 1-star song weight",
+          "title": "1-star songs",
           "default": 1,
           "minimum": 0,
           "maximum": 10,
-          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
+          "description": "0 excludes this star level from scoring and coverage."
         },
         "artist_two_star_weight": {
           "type": "number",
-          "title": "Artist: 2-star song weight",
+          "title": "2-star songs",
           "default": 2,
           "minimum": 0,
-          "maximum": 10,
-          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
+          "maximum": 10
         },
         "artist_three_star_weight": {
           "type": "number",
-          "title": "Artist: 3-star song weight",
+          "title": "3-star songs",
           "default": 3,
           "minimum": 0,
-          "maximum": 10,
-          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
+          "maximum": 10
         },
         "artist_four_star_weight": {
           "type": "number",
-          "title": "Artist: 4-star song weight",
+          "title": "4-star songs",
           "default": 4,
           "minimum": 0,
-          "maximum": 10,
-          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
+          "maximum": 10
         },
         "artist_five_star_weight": {
           "type": "number",
-          "title": "Artist: 5-star song weight",
+          "title": "5-star songs",
           "default": 5,
           "minimum": 0,
-          "maximum": 10,
-          "description": "0 excludes this star level from scoring and coverage. At least one weight for each output must be positive."
+          "maximum": 10
         },
         "run_time_utc": {
           "type": "string",
           "title": "Daily start time (UTC)",
           "default": "03:00",
           "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
-          "description": "Live callbacks can reschedule this time. Some Navidrome versions unload a plugin after configuration edits without reinitializing it; restart the server/container after edits if callbacks stop."
+          "description": "24-hour time, e.g. 03:00. UTC does not follow daylight saving time. Restart after saving settings on Navidrome 0.64.2."
         },
         "run_now": {
           "type": "boolean",
-          "title": "Request a scan now",
+          "title": "Request one run",
           "default": false,
-          "description": "Starts once on the next worker tick. Leaving true does not repeat scans, including after restart. To rearm, save false, let a worker tick observe it, then save true. Restart after edits on Navidrome versions that unload plugins without reinitializing."
+          "description": "Runs once on the next worker tick. To run again, save this off and let a worker tick observe it, then save it on. Restart after each save on Navidrome 0.64.2."
         },
         "batch_size": {
           "type": "integer",
@@ -229,26 +241,35 @@
           "default": 25,
           "minimum": 1,
           "maximum": 100,
-          "description": "Inventory pages, album reads, source checks, and artist evaluations are checkpointed in bounded batches; batches chain within a shared 20-second callback budget."
+          "description": "Usually leave at 25. Lower values save progress more often; higher values reduce storage overhead. Batches share a 20-second callback budget."
         },
         "batch_interval_seconds": {
           "type": "integer",
-          "title": "Seconds between continuation ticks",
+          "title": "Pause between worker callbacks (seconds)",
           "default": 10,
           "minimum": 5,
           "maximum": 300,
-          "description": "Delay before continuing unfinished work or checking manual requests. There is no interval sleep between chained batches."
+          "description": "Usually leave at 10. Higher values reduce background activity but delay continuations and manual requests. Batches within one callback do not pause."
         },
         "detail_logging": {
           "type": "string",
-          "title": "Per-item audit logging",
+          "title": "Per-item log detail",
           "default": "debug",
-          "enum": [
-            "debug",
-            "info",
-            "off"
-          ],
-          "description": "Info summaries are always emitted. Choose info to see every item without enabling server debug logging; this can be verbose. Errors remain visible even when item logging is off."
+          "description": "Summaries and errors are always logged. Use Info to see each result without enabling server debug logging; Off hides routine item details.",
+          "oneOf": [
+            {
+              "const": "debug",
+              "title": "Debug (server debug logging required)"
+            },
+            {
+              "const": "info",
+              "title": "Info (every item)"
+            },
+            {
+              "const": "off",
+              "title": "Off (summaries and errors only)"
+            }
+          ]
         }
       },
       "allOf": [
@@ -337,81 +358,77 @@
       "elements": [
         {
           "type": "Category",
-          "label": "Outputs and safety",
+          "label": "Start here",
           "elements": [
             {
-              "type": "Control",
-              "scope": "#/properties/rate_albums"
-            },
-            {
-              "type": "Control",
-              "scope": "#/properties/rate_artists"
-            },
-            {
-              "type": "Control",
-              "scope": "#/properties/artist_attribution"
-            },
-            {
-              "type": "Control",
-              "scope": "#/properties/album_rating_policy"
-            },
-            {
-              "type": "Control",
-              "scope": "#/properties/artist_rating_policy"
-            },
-            {
-              "type": "Control",
-              "scope": "#/properties/dry_run"
-            },
-            {
-              "type": "Control",
-              "scope": "#/properties/album_clear_below_threshold"
-            },
-            {
-              "type": "Control",
-              "scope": "#/properties/artist_clear_below_threshold"
-            },
-            {
-              "type": "Control",
-              "scope": "#/properties/skip_unrated_users"
-            }
-          ]
-        },
-        {
-          "type": "Category",
-          "label": "Album calculation",
-          "elements": [
-            {
-              "type": "Control",
-              "scope": "#/properties/album_minimum_rated_percent"
-            },
-            {
-              "type": "Control",
-              "scope": "#/properties/album_minimum_rated_songs"
+              "type": "Group",
+              "label": "Preview before applying",
+              "elements": [
+                {
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/dry_run"
+                    },
+                    {
+                      "type": "Label",
+                      "text": "Leave on to review proposed changes in the Navidrome logs. Turn off to apply them on the next run."
+                    }
+                  ]
+                }
+              ]
             },
             {
               "type": "Group",
-              "label": "Song rating weights",
+              "label": "Album output",
               "elements": [
                 {
-                  "type": "Control",
-                  "scope": "#/properties/album_one_star_weight"
-                },
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/rate_albums"
+                    },
+                    {
+                      "type": "Label",
+                      "text": "Calculate each album from your song ratings on that album."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Group",
+              "label": "Artist output",
+              "elements": [
                 {
-                  "type": "Control",
-                  "scope": "#/properties/album_two_star_weight"
-                },
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/rate_artists"
+                    },
+                    {
+                      "type": "Label",
+                      "text": "Calculate each artist directly from your song ratings, independently of album ratings."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Group",
+              "label": "Artist credits",
+              "elements": [
                 {
-                  "type": "Control",
-                  "scope": "#/properties/album_three_star_weight"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/album_four_star_weight"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/album_five_star_weight"
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/artist_attribution"
+                    }
+                  ]
                 }
               ]
             }
@@ -419,39 +436,82 @@
         },
         {
           "type": "Category",
-          "label": "Artist calculation",
+          "label": "Album ratings",
           "elements": [
             {
-              "type": "Control",
-              "scope": "#/properties/artist_minimum_rated_percent"
-            },
-            {
-              "type": "Control",
-              "scope": "#/properties/artist_minimum_rated_songs"
+              "type": "Group",
+              "label": "Existing ratings",
+              "elements": [
+                {
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/album_rating_policy"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "type": "Group",
-              "label": "Song rating weights",
+              "label": "Coverage required",
               "elements": [
                 {
-                  "type": "Control",
-                  "scope": "#/properties/artist_one_star_weight"
-                },
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/album_minimum_rated_percent"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/album_minimum_rated_songs"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/album_clear_below_threshold"
+                    },
+                    {
+                      "type": "Label",
+                      "text": "Turn off to keep the last rating below either coverage limit. Preserve still protects manual ratings. Empty sources and sources with every rated song excluded are never cleared."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Group",
+              "label": "Song weights",
+              "elements": [
                 {
-                  "type": "Control",
-                  "scope": "#/properties/artist_two_star_weight"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/artist_three_star_weight"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/artist_four_star_weight"
-                },
-                {
-                  "type": "Control",
-                  "scope": "#/properties/artist_five_star_weight"
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/album_one_star_weight"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/album_two_star_weight"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/album_three_star_weight"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/album_four_star_weight"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/album_five_star_weight"
+                    },
+                    {
+                      "type": "Label",
+                      "text": "Higher weights give those songs more influence. Use 1 for every level for a simple average; 0 excludes a level. Keep at least one weight positive. Results round to the nearest star, with halves rounded up."
+                    }
+                  ]
                 }
               ]
             }
@@ -459,31 +519,163 @@
         },
         {
           "type": "Category",
-          "label": "Schedule and logging",
+          "label": "Artist ratings",
           "elements": [
             {
-              "type": "Control",
-              "scope": "#/properties/run_time_utc"
+              "type": "Group",
+              "label": "Existing ratings",
+              "elements": [
+                {
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/artist_rating_policy"
+                    }
+                  ]
+                }
+              ]
             },
             {
-              "type": "Control",
-              "scope": "#/properties/run_now"
+              "type": "Group",
+              "label": "Coverage required",
+              "elements": [
+                {
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/artist_minimum_rated_percent"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/artist_minimum_rated_songs"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/artist_clear_below_threshold"
+                    },
+                    {
+                      "type": "Label",
+                      "text": "Turn off to keep the last rating below either coverage limit. Preserve still protects manual ratings. Empty sources and sources with every rated song excluded are never cleared."
+                    }
+                  ]
+                }
+              ]
             },
             {
-              "type": "Control",
-              "scope": "#/properties/batch_size"
+              "type": "Group",
+              "label": "Song weights",
+              "elements": [
+                {
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/artist_one_star_weight"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/artist_two_star_weight"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/artist_three_star_weight"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/artist_four_star_weight"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/artist_five_star_weight"
+                    },
+                    {
+                      "type": "Label",
+                      "text": "Higher weights give those songs more influence. Use 1 for every level for a simple average; 0 excludes a level. Keep at least one weight positive. Results round to the nearest star, with halves rounded up."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Category",
+          "label": "Schedule and logs",
+          "elements": [
+            {
+              "type": "Group",
+              "label": "When to run",
+              "elements": [
+                {
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/run_time_utc"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/run_now"
+                    },
+                    {
+                      "type": "Label",
+                      "text": "Runs once on the next worker tick. To run again, save this off and let a worker tick observe it, then save it on. Restart after each save on Navidrome 0.64.2."
+                    }
+                  ]
+                }
+              ]
             },
             {
-              "type": "Control",
-              "scope": "#/properties/batch_interval_seconds"
+              "type": "Group",
+              "label": "Performance",
+              "elements": [
+                {
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/batch_size"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/batch_interval_seconds"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/skip_unrated_users"
+                    },
+                    {
+                      "type": "Label",
+                      "text": "Speeds up scans for users with no song ratings. Falls back to a full scan whenever changes may be needed."
+                    }
+                  ]
+                }
+              ]
             },
             {
-              "type": "Control",
-              "scope": "#/properties/detail_logging"
-            },
-            {
-              "type": "Control",
-              "scope": "#/properties/audit_logging"
+              "type": "Group",
+              "label": "Logs and troubleshooting",
+              "elements": [
+                {
+                  "type": "VerticalLayout",
+                  "elements": [
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/detail_logging"
+                    },
+                    {
+                      "type": "Control",
+                      "scope": "#/properties/audit_logging"
+                    },
+                    {
+                      "type": "Label",
+                      "text": "For troubleshooting or independent verification. Logs song IDs, ratings, artist credits, and settings; forces a full scan and can produce large, private logs."
+                    }
+                  ]
+                }
+              ]
             }
           ]
         }

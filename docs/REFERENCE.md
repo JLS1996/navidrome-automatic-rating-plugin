@@ -27,7 +27,9 @@ Before artist changes, it re-enumerates albums and compares source song IDs, rat
 
 Active library scans block source processing or writes. Item failures retry on the next full run. Fatal inventory/API failures end the affected user's scan; later users can continue on another tick. Ratings represent individual source reads, not a whole-run transaction. Changes after verification can still be absent from a result.
 
-Before a rating write, the plugin records its intent in KV, then rechecks calculation settings, grants/access, and scan status immediately before calling `setRating`. A change during intent storage therefore defers the write. It verifies the resulting rating before finalizing ownership. A lost response or failed finalization can be reconciled from the pending intent on a later scan. Unverifiable/deferred writes retain their intent. The API does not provide an atomic compare-and-set or whole-run transaction; later edits can still occur between host calls. Ownership keys exceeding the host's 256-byte UTF-8 limit fail without a rating write.
+Before a rating write, the plugin records its intent in KV, re-reads the target (and album source songs), then rechecks calculation settings, grants/access, and scan status before calling `setRating`. A change during intent storage therefore defers the write. It verifies the resulting rating before finalizing ownership. A lost response or failed finalization can be reconciled from the pending intent on a later scan. Attempted but unverified writes retain their intent. If no API write was attempted, the previous resolved ownership is restored; a failed restoration emits `write_intent_cleanup_failed`. The API does not provide an atomic compare-and-set or whole-run transaction; later edits can still occur between host calls. Ownership keys exceeding the host's 256-byte UTF-8 limit fail without a rating write.
+
+Transient checkpoint-read errors leave saved progress intact for retry; only unreadable saved contents or invalid state trigger the corruption reset path. Metrics-save failures emit `snapshot_metrics_save_failed` and do not abort scans or capacity cancellation.
 
 Worker callbacks serialize by atomically cancelling their recurring schedule and rearming it in `finally`. Batches share a 20-second callback budget and checkpoint between batches. Daily callbacks queue requests. A forced termination before rearming can require a Navidrome restart. Persisted requests/progress survive restart, subject to configuration/access checks; missed offline daily events are not automatically replayed.
 
@@ -100,6 +102,8 @@ Enable `audit_logging`, then capture one complete, uninterrupted run from `run_s
 `python3 scripts/verify-audit.py LOG --explain-artist ARTIST_ID [--user USERNAME]` verifies **the entire run** before returning `artistExplanations`. Each explanation contains the selected attribution, histogram (0–5), counts, quota, approximate `score`, exact rational `scoreExact`, `calculatedRating`, logged action/existing/proposed ratings, and per-album song/credit evidence. `calculatedRating:0` means insufficient coverage; a preserved item's `proposedRating` remains null even when its calculated rating is positive. Omitting `--user` selects every matching user. Unknown selections fail; ordinary verification output is unchanged. Keep source logs and explanations local.
 
 ### Storage metrics
+
+Metrics persistence is best-effort; warnings can mean persisted peaks are incomplete. The scan checkpoint is authoritative.
 
 Snapshot capacity is 24 MiB and total KV permission is 64 MB. A conservative growth guard cancels before an uncheckpointable target write. Progress and summaries expose:
 
