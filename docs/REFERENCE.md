@@ -1,6 +1,8 @@
 # Technical reference
 
-For installation and settings, see the [README](../README.md). This page covers calculation contracts, source validation, logs, recovery, and development.
+[README](../README.md) · [Configuration](CONFIGURATION.md) · [Operations guide](OPERATIONS.md)
+
+This page covers calculation contracts, source validation, event schemas, recovery, and development.
 
 ## Calculation contracts
 
