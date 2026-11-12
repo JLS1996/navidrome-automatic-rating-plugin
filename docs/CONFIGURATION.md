@@ -2,9 +2,9 @@
 
 [README](../README.md) · [Operations guide](OPERATIONS.md) · [Technical reference](REFERENCE.md)
 
-Change these settings in Navidrome's plugin UI. Album and artist options are independent. Preview changes with `dry_run=true`, then follow the [operations guide](OPERATIONS.md) to apply ratings or request another run. The [manifest](../manifest.json) contains the complete schema.
+Change these settings in Navidrome's plugin UI. Follow the [operations guide](OPERATIONS.md#apply-settings-and-permissions) to apply changes. The [manifest](../manifest.json) contains the complete schema.
 
-The settings UI groups options under **Start here**, **Album ratings**, **Artist ratings**, and **Schedule and logs**. Dropdown labels are written for readability; the configuration values documented below stay the same. Checkbox help is shown explicitly because Navidrome 0.64.2 hides schema descriptions for switches.
+The settings UI groups options under **Start here**, **Album ratings**, **Artist ratings**, and **Schedule and logs**. The tables below use the configuration keys; dropdowns in Navidrome show readable labels for the same values.
 
 ## Choose what to rate
 
@@ -52,7 +52,7 @@ For example, these changes generate only artist ratings, include credited guest 
 }
 ```
 
-Examples show only the settings to change. Keep the other settings at your chosen values, including `dry_run=true` while previewing.
+Examples show only the settings to change; all other settings keep their configured values.
 
 ## Choose how much each star rating counts
 
@@ -133,7 +133,7 @@ The unrated-user shortcut validates bulk data and existing ratings first. Owners
 
 Batches share a **20-second callback budget**, followed by the continuation interval. A shorter interval resumes work sooner; larger batches reduce checkpoint overhead but repeat more work after interruptions. Slow host calls can exceed the budget. Keep the defaults unless tuning a large library.
 
-There is no verified maximum song count or guaranteed linear runtime. Snapshot capacity is **24 MiB**, with **64 MB** total plugin storage. Use a complete dry run and the progress logs to assess a large catalogue. A small checkpoint after completion is not the active storage peak.
+There is no verified maximum song count or guaranteed linear runtime. Snapshot capacity is **24 MiB**, with **64 MB** total plugin storage. Use the progress logs to assess runtime and storage use for your catalogue. A small checkpoint after completion is not the active storage peak.
 
 ## Logging settings
 

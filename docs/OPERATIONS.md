@@ -2,40 +2,41 @@
 
 [README](../README.md) · [Configuration](CONFIGURATION.md) · [Technical reference](REFERENCE.md)
 
-Install, preview, apply ratings, and check the results. Setting defaults and examples are in the [configuration guide](CONFIGURATION.md).
+Manage installation, upgrades, migrations, manual runs, and results. For first-time setup, start with the [README](../README.md#installation).
 
-## Install and preview
+## Verify a download
 
-Requires **Navidrome 0.64.2 or newer** with native plugins enabled:
+Download `automatic-ratings.ndp` and `automatic-ratings.ndp.sha256` from the same [release](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest). In the download directory, run:
 
-```toml
-[Plugins]
-Enabled = true
+```bash
+sha256sum -c automatic-ratings.ndp.sha256
 ```
 
-1. Download the ready-to-install **[v0.3.0 plugin package (.ndp)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.0/automatic-ratings.ndp)** and [checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.3.0/automatic-ratings.ndp.sha256). Verify with `sha256sum -c automatic-ratings.ndp.sha256` in the download directory. No source build is needed.
-2. Back up the Navidrome database and plugin storage. Copy the package into the plugins directory and rescan plugins, using `navidrome plugin rescan` where supported.
-3. Grant the plugin the intended **users and libraries**, then enable **Automatic Ratings**. Each user's inputs are limited to libraries allowed by both the plugin grant and their own access. Empty grants do not mean unrestricted access.
-4. Open the plugin settings. Keep `dry_run=true`, choose the [configuration settings](CONFIGURATION.md), and set `run_now=true`. Save and restart Navidrome where required. Review `user_summary` and `run_summary`; temporarily choose `detail_logging=info` to inspect individual decisions.
-5. When the preview matches your intent, disable older rating plugins, set `dry_run=false`, and request a fresh run. Keep the policies you previewed; turn `audit_logging=false` and `detail_logging=debug` for normal use. Changing dry-run mode cancels any active preview. See [running again](#schedule-and-manual-runs) if `run_now` is already true.
+The result should be `automatic-ratings.ndp: OK`.
 
-**On Navidrome 0.64.2, restart the server/container after settings or grant edits.** These edits can unload the plugin without restarting its callbacks. Confirm an `enabled` log event; disabling and re-enabling the plugin may not restore them.
+## Apply settings and permissions
 
-Installation uses only the `.ndp` package. Node.js and Python are not required on the Navidrome server.
+Grant the intended **users and libraries** in Navidrome's plugin page. Each user's inputs are limited to libraries allowed by both the plugin grant and their own access. Empty grants do not mean unrestricted access.
+
+On **Navidrome 0.64.2**, restart the server/container after settings or grant edits. These edits can unload the plugin without restarting its callbacks. Confirm an `enabled` log event; disabling and re-enabling the plugin may not restore them.
+
+Changing calculation settings or `dry_run` cancels an active run. Save the new settings, apply them with a restart where required, then [request another run](#schedule-and-manual-runs). Changing `dry_run` alone does not rearm `run_now`.
 
 ## Validation status
 
 **[v0.2.0](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/tag/v0.2.0) is the first regular release.** Production use on Navidrome 0.64.2 has verified album/artist writes, configured coverage thresholds, and adoption of matching existing ratings, with song ratings untouched. Automated tests also cover clears, manual overrides, recovery, performing-artist attribution, and repeat runs without rating or timestamp changes.
 
-**v0.3.0 adds optional zero weights.** Compiled tests and the isolated Navidrome fixture cover independent exclusions, retaining existing ratings when every rated song is excluded, and clearing genuinely unrated outputs. Existing configurations keep their defaults. Keep plugin storage during upgrades, preview weight changes, and request a fresh run after applying them.
+**v0.3.0 adds optional zero weights.** Compiled tests and the isolated Navidrome fixture cover independent exclusions, retaining existing ratings when every rated song is excluded, and clearing genuinely unrated outputs. Existing configurations keep their defaults. Keep plugin storage during upgrades and request a fresh run after applying weight changes.
 
 ## Migrating from another ratings plugin
 
-Ratings from another plugin start as unmanaged, so preserve keeps them. To adopt or regenerate them, preview **replace for the selected output**, apply it once after review, then choose **preserve** if you want later manual edits protected. Adopted ratings continue updating under preserve. Clearing also applies during migration; use your backup to restore previous values if needed.
+Ratings from another plugin start as unmanaged, so **preserve** keeps them. To adopt or regenerate them, choose **replace for the selected output** and run it once with writes enabled. Return to **preserve** afterward if you want later manual edits protected. Adopted ratings continue updating under preserve. Clearing rules also apply during migration; see the [first-run guidance](../README.md#before-you-start) before switching policies.
 
 ### Ownership and upgrades
 
-Ownership is best-effort: edits to exactly the generated value, or edits away and back between scans, cannot be detected. Dry runs change neither ratings nor ownership records. Keep the plugin filename/ID and its storage when upgrading so ownership evidence survives. Upgrading from 0.1.0/0.1.1 resets partial scans; request a fresh run.
+When upgrading, replace the `.ndp` package, keep its filename/ID and plugin storage, and restart Navidrome. This preserves the records used to recognize generated ratings and manual overrides. Upgrading from 0.1.0/0.1.1 resets partial scans; request a fresh run.
+
+Ownership is best-effort: edits to exactly the generated value, or edits away and back between scans, cannot be detected. Dry runs change neither ratings nor ownership records.
 
 ## Schedule and manual runs
 
