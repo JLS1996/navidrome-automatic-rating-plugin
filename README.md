@@ -1,5 +1,10 @@
 # Automatic Ratings for Navidrome
 
+> [!IMPORTANT]
+> **AI-assisted development**
+>
+> This plugin was developed with AI assistance. It is working well in the maintainer's current Navidrome setup.
+
 [![Latest release](https://img.shields.io/github/v/release/JLS1996/navidrome-automatic-rating-plugin)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest)
 [![Build](https://github.com/JLS1996/navidrome-automatic-rating-plugin/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -74,6 +79,6 @@ To build or contribute, start with the [development instructions](docs/REFERENCE
 
 ## Credits and license
 
-Inspired by [mattnic/navidrome-album-ratings](https://github.com/mattnic/navidrome-album-ratings). Developed with AI assistance.
+Inspired by [mattnic/navidrome-album-ratings](https://github.com/mattnic/navidrome-album-ratings).
 
 Released under the [MIT License](LICENSE).
