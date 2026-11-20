@@ -30,12 +30,12 @@ def check(condition, message):
         raise AssertionError(message)
 
 
-def exercise(binary, package):
+def exercise(binary, package, plugin_id="navidrome-automatic-rating-plugin", upgrade_from=None):
     root = Path(tempfile.mkdtemp(prefix="automatic-ratings-navidrome-"))
     music, data = root / "music", root / "data"
     music.mkdir()
     (data / "plugins").mkdir(parents=True)
-    shutil.copyfile(package, data / "plugins/automatic-ratings.ndp")
+    shutil.copyfile(upgrade_from or package, data / "plugins" / (plugin_id + ".ndp"))
     password = secrets.token_urlsafe(24)
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -131,8 +131,8 @@ def exercise(binary, package):
     def events():
         return audit.read_events(log_file.read_text().splitlines()) if log_file.exists() else []
 
-    defaults = {key: value["default"] for key, value in json.loads(
-        (Path(__file__).resolve().parents[1] / "manifest.json").read_text())["config"]["schema"]["properties"].items()}
+    manifest = json.loads((Path(__file__).resolve().parents[1] / "manifest.json").read_text())
+    defaults = {key: value["default"] for key, value in manifest["config"]["schema"]["properties"].items()}
     settings = {**defaults, "batch_interval_seconds": 5, "detail_logging": "info", "run_now": False,
         "run_time_utc": (datetime.now(timezone.utc) + timedelta(hours=12)).strftime("%H:%M")}
 
@@ -144,17 +144,20 @@ def exercise(binary, package):
                 headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(request, timeout=10) as response:
                 token = json.load(response)["token"]
-            request = urllib.request.Request(f"http://127.0.0.1:{port}/api/plugin/automatic-ratings",
+            request = urllib.request.Request(f"http://127.0.0.1:{port}/api/plugin/{plugin_id}",
                 method="PUT", data=json.dumps({"config": json.dumps(settings), **(permissions or {})}).encode(),
                 headers={"Content-Type": "application/json", "x-nd-authorization": "Bearer " + token})
             with urllib.request.urlopen(request, timeout=30) as response:
-                check(json.load(response)["enabled"], "Settings save disabled the plugin")
+                saved_plugin = json.load(response)
+                check(saved_plugin["enabled"], "Settings save disabled the plugin")
+                if upgrade_from is None or any(e.get("version") == manifest["version"] for e in events()):
+                    check(json.loads(saved_plugin["manifest"])["name"] == "navidrome-automatic-rating-plugin", "Wrong plugin display name")
             wait_for(lambda: any(e["event"] == "enabled" for e in events()[previous:]), "live plugin reload", timeout=15)
             return
         stop()
         file = root / "plugin-config.json"
         file.write_text(json.dumps(settings))
-        cli("plugin", "edit", "automatic-ratings", "--all-users",
+        cli("plugin", "edit", plugin_id, "--all-users",
             "--libraries", "1", "--no-write-access", "--config-file", str(file))
         if start_server:
             start()
@@ -216,7 +219,7 @@ def exercise(binary, package):
         cli("scan", "--full")
         cli("plugin", "rescan")
         configure(start_server=False)
-        cli("plugin", "enable", "automatic-ratings")
+        cli("plugin", "enable", plugin_id)
         start()
         wait_for(lambda: not api("getScanStatus")["scanStatus"]["scanning"], "library scan")
         albums = {a["name"]: api("getAlbum", id=a["id"])["album"] for a in api(
@@ -243,9 +246,13 @@ def exercise(binary, package):
         # Inject only into this temporary store to model lost ownership finalization
         # after a successful host write, then recover through the installed plugin.
         stop()
+        if upgrade_from is not None:
+            shutil.copyfile(package, data / "plugins" / (plugin_id + ".ndp"))
+            cli("plugin", "rescan")
+            cli("plugin", "enable", plugin_id)
         key = "automatic-ratings:v1:owner:" + json.dumps(["example-reader", "album", dim["id"]], separators=(",", ":"))
         pending = json.dumps({"version": 1, "rating": None, "manual": False, "pending": {"before": 4, "target": 1}}).encode()
-        with sqlite3.connect(data / "plugins/automatic-ratings/kvstore.db") as db:
+        with sqlite3.connect(data / "plugins" / plugin_id / "kvstore.db") as db:
             check(db.execute("UPDATE kvstore SET value=?,size=? WHERE key=?", (pending, len(pending), key)).rowcount == 1,
                 "Missing initial ownership record")
         start()
@@ -269,7 +276,7 @@ def exercise(binary, package):
         start()
         time.sleep(11)
         check(len([e for e in events() if e["event"] == "run_summary"]) == completed, "Restart replayed a consumed request")
-        with sqlite3.connect(f"file:{data}/plugins/automatic-ratings/kvstore.db?mode=ro", uri=True) as db:
+        with sqlite3.connect(f"file:{data}/plugins/{plugin_id}/kvstore.db?mode=ro", uri=True) as db:
             owner = json.loads(db.execute("SELECT value FROM kvstore WHERE key=?", (key,)).fetchone()[0])
         check(owner["pending"] is None and owner["rating"] == 1, "Pending intent was not recovered")
         api("setRating", id=bright["id"], rating=2)
@@ -334,6 +341,10 @@ def exercise(binary, package):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--navidrome", type=Path, required=True, help="Checksum-verified Navidrome 0.64.2 binary")
-    parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[1] / "dist/automatic-ratings.ndp")
+    parser.add_argument("--package", type=Path, default=Path(__file__).resolve().parents[1] / "dist/navidrome-automatic-rating-plugin.ndp")
+    parser.add_argument("--plugin-id", choices=["navidrome-automatic-rating-plugin", "automatic-ratings"],
+        default="navidrome-automatic-rating-plugin", help="Installed filename/ID; legacy ID verifies upgrade compatibility")
+    parser.add_argument("--upgrade-from", type=Path, help="Install this older package first, then verify an in-place upgrade")
     args = parser.parse_args()
-    exercise(args.navidrome.resolve(), args.package.resolve())
+    exercise(args.navidrome.resolve(), args.package.resolve(), args.plugin_id,
+        args.upgrade_from.resolve() if args.upgrade_from else None)

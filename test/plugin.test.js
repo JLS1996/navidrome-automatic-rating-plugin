@@ -33,7 +33,7 @@ test("both outputs use songs independently and dry run leaves ratings and owners
 test("users with no song ratings get info summaries and no per-item info flood by default",()=>{
   const h=fixture();h.run();const empty=h.events("user_summary").find(e=>e.user==="example-unrated");
   assert.equal(empty.albums.updated,0);assert.equal(empty.albums.belowQuota,3);assert.equal(empty.artists.belowQuota,2);
-  assert.equal(h.logs.some(([level,line])=>level==="info"&&JSON.parse(line.slice(19)).event==="item"),false);
+  assert.equal(h.logs.some(([level,line])=>level==="info"&&JSON.parse(line.slice(line.indexOf("{"))).event==="item"),false);
   assert.ok(h.logs.some(([level,line])=>level==="info"&&line.includes('"event":"user_summary"')));
 });
 test("detail logging can be promoted to info or disabled; item schema is stable across outcomes",()=>{
@@ -350,7 +350,7 @@ test("artist-only source failures do not emit uncounted album item events",()=>{
 test("blocked artist failures remain visible when routine item logging is off",()=>{
   const h=fixture({users:[user]});bodyMutation(h,"getAlbum",body=>{if(body.album.id==="album-a")body.album.songCount++;});
   h.run({dry_run:false,detail_logging:"off"});
-  const blocked=h.logs.filter(([,line])=>JSON.parse(line.slice(19)).action==="blocked");
+  const blocked=h.logs.filter(([,line])=>JSON.parse(line.slice(line.indexOf("{"))).action==="blocked");
   assert.equal(blocked.length,counts(h).artists.failed);assert.ok(blocked.length>0);
   assert.ok(blocked.every(([level])=>level==="error"));
   assert.equal(h.writes.some(w=>w.kind==="artist"),false);

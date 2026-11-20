@@ -26,7 +26,11 @@ test("independent verifier reproduces both outputs and structured collaboration 
 });
 test("verifier accepts plain, prefixed, Navidrome JSON, and quoted Navidrome text logs",async()=>{
   const h=audited(),events=h.events();
-  for(const render of [e=>JSON.stringify(e),e=>"Automatic Ratings: "+JSON.stringify(e),
+  for(const render of [e=>JSON.stringify(e),
+    e=>"navidrome-automatic-rating-plugin: "+JSON.stringify(e),
+    e=>JSON.stringify({time:"example",level:"info",msg:"navidrome-automatic-rating-plugin: "+JSON.stringify(e)}),
+    e=>`time="example" level=info msg=${JSON.stringify("navidrome-automatic-rating-plugin: "+JSON.stringify(e))} plugin=navidrome-automatic-rating-plugin`,
+    e=>"Automatic Ratings: "+JSON.stringify(e),
     e=>JSON.stringify({time:"example",level:"info",msg:"Automatic Ratings: "+JSON.stringify(e)}),
     e=>`time="example" level=info msg=${JSON.stringify("Automatic Ratings: "+JSON.stringify(e))} plugin=automatic-ratings`]){
     assert.equal((await verify(events.map(render).join("\n"))).status,0);

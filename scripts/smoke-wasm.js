@@ -4,14 +4,14 @@ const path=require("node:path");
 const fs=require("node:fs"),os=require("node:os"),{spawnSync}=require("node:child_process");
 const {createPlugin}=require("@extism/extism");
 const {fixture}=require("../test/helpers");
-const {decode,ownerKey}=require("../src/plugin");
+const {decode,ownerKey,NAME}=require("../src/plugin");
 const wasm=path.resolve(__dirname,"../dist/plugin.wasm");
 const names=["subsonicapi_call","users_getusers","library_getalllibraries","scheduler_schedulerecurring",
   "scheduler_cancelschedule","kvstore_get","kvstore_set","kvstore_list"];
 async function invoke(h,config,fn,input="") {
   const functions={"extism:host/user":Object.fromEntries(names.map(name=>[name,(cp,ptr)=>cp.store(JSON.stringify(h.host(name,cp.read(ptr).json())))]))};
   const logger=Object.fromEntries(["trace","debug","info","warn","error"].map(level=>[level,(...parts)=>{
-    const message=parts.join(" ");if(message.startsWith("Automatic Ratings: "))h.logs.push([level,message]);
+    const message=parts.join(" ");if(message.startsWith(NAME+": "))h.logs.push([level,message]);
   }]));
   const plugin=await createPlugin(wasm,{useWasi:true,functions,config,logger,logLevel:"debug"});
   try{return await plugin.call(fn,input);}finally{await plugin.close();}

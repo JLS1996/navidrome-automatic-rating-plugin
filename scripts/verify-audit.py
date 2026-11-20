@@ -1,6 +1,6 @@
-"""Independently verify one complete Automatic Ratings audit log, offline.
+"""Independently verify one complete navidrome-automatic-rating-plugin audit log, offline.
 
-Accepts plain event JSON, `Automatic Ratings: {...}` lines, Navidrome JSON logs,
+Accepts plain event JSON, current and legacy plugin prefixes, Navidrome JSON logs,
 or Navidrome's quoted text logs. Requires audit_logging=true for the entire run.
 Uses exact fractions for the formula; imports no plugin code or dependencies.
 """
@@ -12,7 +12,7 @@ import math
 import re
 import sys
 
-PREFIX = "Automatic Ratings: "
+PREFIXES = ("navidrome-automatic-rating-plugin: ", "Automatic Ratings: ")
 OUTCOMES = ("updated", "unchanged", "preserved", "belowQuota", "empty", "failed")
 ACTIONS = {"update": "updated", "clear": "updated", "preview_update": "updated", "preview_clear": "updated",
     "match": "unchanged", "adopt": "unchanged", "preview_adopt": "unchanged", "preserve": "preserved",
@@ -41,12 +41,13 @@ def read_events(lines):
                     continue
                 else:
                     continue
-            if PREFIX not in line:
+            prefix = next((p for p in PREFIXES if p in line), None)
+            if prefix is None:
                 continue
             match = re.search(r'\bmsg=("(?:\\.|[^"\\])*")', line)
             if match:
                 line = json.loads(match[1])
-            value, _ = json.JSONDecoder().raw_decode(line.split(PREFIX, 1)[1])
+            value, _ = json.JSONDecoder().raw_decode(line.split(prefix, 1)[1])
             require(isinstance(value, dict) and value.get("schemaVersion") == 1, "Unsupported event schema")
             events.append(value)
         except (ValueError, TypeError) as error:

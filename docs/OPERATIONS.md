@@ -6,13 +6,13 @@ Manage installation, upgrades, migrations, manual runs, and results. For first-t
 
 ## Verify a download
 
-Download `automatic-ratings.ndp` and `automatic-ratings.ndp.sha256` from the same [release](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest). In the download directory, run:
+Download `navidrome-automatic-rating-plugin.ndp` and `navidrome-automatic-rating-plugin.ndp.sha256` from the same [release](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest). In the download directory, run:
 
 ```bash
-sha256sum -c automatic-ratings.ndp.sha256
+sha256sum -c navidrome-automatic-rating-plugin.ndp.sha256
 ```
 
-The result should be `automatic-ratings.ndp: OK`.
+The result should be `navidrome-automatic-rating-plugin.ndp: OK`.
 
 ## Apply settings and permissions
 
@@ -36,7 +36,9 @@ Ratings from another plugin start as unmanaged, so **preserve** keeps them. To a
 
 ### Ownership and upgrades
 
-When upgrading, replace the `.ndp` package, keep its filename/ID and plugin storage, and restart Navidrome. This preserves the records used to recognize generated ratings and manual overrides. Upgrading from 0.1.0/0.1.1 resets partial scans; request a fresh run.
+**For an existing installation, keep its installed filename/ID and plugin storage.** From v0.5.0, the download is named `navidrome-automatic-rating-plugin.ndp`. Verify its checksum first, then rename the downloaded file to your current installed filename (usually `automatic-ratings.ndp`) and replace that package. Do not install both filenames: Navidrome treats them as separate plugins with separate storage.
+
+The displayed name becomes `navidrome-automatic-rating-plugin` even when the installed filename remains `automatic-ratings.ndp`. Storage keys stay compatible, so ownership records and detected manual overrides are retained. Restart Navidrome after replacing the package. Upgrading from 0.1.0/0.1.1 resets partial scans; request a fresh run.
 
 Ownership is best-effort: edits to exactly the generated value, or edits away and back between scans, cannot be detected. Dry runs change neither ratings nor ownership records.
 

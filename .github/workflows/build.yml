@@ -65,12 +65,12 @@ jobs:
       - name: Build NDP package
         run: |
           npm run build
-          test -s dist/automatic-ratings.ndp
-          unzip -t dist/automatic-ratings.ndp
-          test "$(unzip -Z -1 dist/automatic-ratings.ndp | LC_ALL=C sort)" = "$(printf 'LICENSE\nmanifest.json\nplugin.wasm\n' | LC_ALL=C sort)"
-          unzip -l dist/automatic-ratings.ndp
+          test -s dist/navidrome-automatic-rating-plugin.ndp
+          unzip -t dist/navidrome-automatic-rating-plugin.ndp
+          test "$(unzip -Z -1 dist/navidrome-automatic-rating-plugin.ndp | LC_ALL=C sort)" = "$(printf 'LICENSE\nmanifest.json\nplugin.wasm\n' | LC_ALL=C sort)"
+          unzip -l dist/navidrome-automatic-rating-plugin.ndp
           cd dist
-          sha256sum -c automatic-ratings.ndp.sha256
+          sha256sum -c navidrome-automatic-rating-plugin.ndp.sha256
       - name: Smoke-test compiled WASM with simulated host functions
         run: npm run test:wasm
       - name: Check scaling and simulated writes with native Extism
@@ -95,13 +95,22 @@ jobs:
           mkdir -p "$RUNNER_TEMP/navidrome-host"
           tar -xzf /tmp/navidrome-host.tar.gz -C "$RUNNER_TEMP/navidrome-host"
           python3 scripts/test-navidrome.py --navidrome "$RUNNER_TEMP/navidrome-host/navidrome"
+      - name: Verify in-place upgrade from v0.4.1 with the original installed filename
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o /tmp/automatic-ratings-v0.4.1.ndp \
+            https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/download/v0.4.1/automatic-ratings.ndp
+          echo '83b3e7766db5891d5552d9ce7b26ded6fe971be86242abf9b0f0aa04b71ded85  /tmp/automatic-ratings-v0.4.1.ndp' | sha256sum -c -
+          python3 scripts/test-navidrome.py --navidrome "$RUNNER_TEMP/navidrome-host/navidrome" \
+            --plugin-id automatic-ratings --upgrade-from /tmp/automatic-ratings-v0.4.1.ndp
       - name: Upload build artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: automatic-ratings-ndp
+          name: navidrome-automatic-rating-plugin-ndp
           path: |
-            dist/automatic-ratings.ndp
-            dist/automatic-ratings.ndp.sha256
+            dist/navidrome-automatic-rating-plugin.ndp
+            dist/navidrome-automatic-rating-plugin.ndp.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -119,7 +128,7 @@ jobs:
       - name: Download validated build artifact
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          name: automatic-ratings-ndp
+          name: navidrome-automatic-rating-plugin-ndp
           path: release
       - name: Publish GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
@@ -130,5 +139,5 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ !contains(github.ref_name, '-') }}
           files: |
-            release/automatic-ratings.ndp
-            release/automatic-ratings.ndp.sha256
+            release/navidrome-automatic-rating-plugin.ndp
+            release/navidrome-automatic-rating-plugin.ndp.sha256

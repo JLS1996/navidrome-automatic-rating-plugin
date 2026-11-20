@@ -41,7 +41,7 @@ Missing, malformed, or changing data falls back to full evaluation. Prefix-scope
 
 ## Logs and counters
 
-Each plugin line begins `Automatic Ratings: ` followed by JSON with `schemaVersion:1` and an `event` discriminator. Item events share these fields:
+Each plugin line begins `navidrome-automatic-rating-plugin: ` (formerly `Automatic Ratings: `) followed by JSON with `schemaVersion:1` and an `event` discriminator. Item events share these fields:
 
 ```text
 action, kind, user, id, name, existingRating, proposedRating, score,
@@ -127,7 +127,7 @@ npm run build
 npm run test:wasm
 ```
 
-The build creates `dist/automatic-ratings.ndp` containing exactly `manifest.json`, `plugin.wasm`, and `LICENSE`, plus the adjacent `automatic-ratings.ndp.sha256` checksum. Run `sha256sum -c automatic-ratings.ndp.sha256` from `dist` to verify it. Compiled-WASM tests use simulated host functions and fictional data, including write/clear branches and fresh callback instances. The pinned npm SDK is a development dependency; the deployed plugin requires neither npm nor Python.
+The build creates `dist/navidrome-automatic-rating-plugin.ndp` containing exactly `manifest.json`, `plugin.wasm`, and `LICENSE`, plus the adjacent `navidrome-automatic-rating-plugin.ndp.sha256` checksum. Run `sha256sum -c navidrome-automatic-rating-plugin.ndp.sha256` from `dist` to verify it. Compiled-WASM tests use simulated host functions and fictional data, including write/clear branches and fresh callback instances. The pinned npm SDK is a development dependency; the deployed plugin requires neither npm nor Python.
 
 [CI](../.github/workflows/build.yml) tests, builds, verifies package contents, runs native scaling/write checks and real Navidrome integration, then uploads the validated artifact/checksum. Matching version tags publish regular releases; tags with a SemVer suffix such as `-rc.1` publish prereleases.
 
@@ -154,3 +154,5 @@ python3 -m venv .venv
 Run these commands from the repository root. `--wasm /path/to/previous/plugin.wasm` compares builds; `--full-scan` disables skipping. The script reconciles fictional rated/unrated-user outcomes and compares reported peaks with observed checkpoints. Timing separates execution from instance compilation and excludes scheduler delays and real-server latency. `--write` affects only the in-memory fixture. Native Extism avoids the JavaScript development SDK's signed allocation-address limitation in long simulated callbacks.
 
 The plugin exports `nd_on_init`, `nd_scheduler_callback`, and `automatic_ratings_calculate` (input: `{histogram:[unrated,one,two,three,four,five],options:{...}}`). Host permissions cover Subsonic API, users, library metadata, scheduler, and KV. No filesystem, direct database, or external HTTP permission is requested. See the [manifest](../manifest.json) and [source](../src/plugin.js) for the complete contracts.
+
+The audit verifier accepts both current and legacy log prefixes. Durable `automatic-ratings:v1:` storage keys and the `automatic_ratings_calculate` host export retain their original names for compatibility. The plugin display name and new-install package name match the repository. CI tests both a fresh install under the new filename and an in-place upgrade from v0.4.1 under the original filename.

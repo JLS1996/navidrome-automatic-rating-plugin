@@ -1,7 +1,9 @@
 "use strict";
 
-const VERSION = "0.4.1";
+const VERSION = "0.5.0";
+const NAME = "navidrome-automatic-rating-plugin";
 const AUDIT_SOURCE_FORMAT = "structured_song_ratings_v1";
+// Keep the durable namespace and host export names compatible with existing installs.
 const PREFIX = "automatic-ratings:v1:";
 const STATE_KEY = PREFIX + "scan";
 const MANUAL_KEY = PREFIX + "manual";
@@ -280,7 +282,7 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
   function get(key) { const r = stored(key); return r.exists ? decode(r.value) : null; }
   function put(key, value) { call("kvstore_set", { key, value: encode(value) }); }
   function event(level, eventName, data = {}) {
-    log(level, `Automatic Ratings: ${JSON.stringify({ schemaVersion: 1, event: eventName, ...data })}`);
+    log(level, `${NAME}: ${JSON.stringify({ schemaVersion: 1, event: eventName, ...data })}`);
   }
   function assignedUsers() {
     const users = call("users_getusers").result ?? [];
@@ -1089,6 +1091,6 @@ function automatic_ratings_calculate() {
   const input = JSON.parse(Host.inputString());
   Host.outputString(JSON.stringify(calculateRating(input.histogram, input.options))); return 0;
 }
-module.exports = typeof Host === "undefined" ? { DEFAULTS, VERSION, readSettings, signature, calculateRating,
+module.exports = typeof Host === "undefined" ? { DEFAULTS, VERSION, NAME, readSettings, signature, calculateRating,
   validateAlbum, attributedSongs, fingerprint, emptyCounts, validCounts, decideRating, resolveOwner,
   ownerKey, encode, decode, createPlugin } : { nd_on_init, nd_scheduler_callback, automatic_ratings_calculate };

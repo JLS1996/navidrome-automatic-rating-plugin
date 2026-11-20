@@ -20,9 +20,9 @@ run(process.env.EXTISM_JS || "extism-js", [
 ], { env: { ...process.env, XDG_CACHE_HOME: path.join(dist, ".cache") } });
 fs.copyFileSync(path.join(root, "manifest.json"), path.join(dist, "manifest.json"));
 fs.copyFileSync(path.join(root, "LICENSE"), path.join(dist, "LICENSE"));
-const archive = path.join(dist, "automatic-ratings.ndp");
+const archive = path.join(dist, "navidrome-automatic-rating-plugin.ndp");
 if (fs.existsSync(archive)) fs.unlinkSync(archive);
-run("zip", ["-q", "-X", "automatic-ratings.ndp", "manifest.json", "plugin.wasm", "LICENSE"], { cwd: dist });
+run("zip", ["-q", "-X", "navidrome-automatic-rating-plugin.ndp", "manifest.json", "plugin.wasm", "LICENSE"], { cwd: dist });
 const checksum = createHash("sha256").update(fs.readFileSync(archive)).digest("hex");
 fs.writeFileSync(archive + ".sha256", `${checksum}  ${path.basename(archive)}\n`);
 console.log(`Built ${archive}`);

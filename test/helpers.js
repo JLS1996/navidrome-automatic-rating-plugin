@@ -1,5 +1,5 @@
 "use strict";
-const { createPlugin, decode } = require("../src/plugin");
+const { createPlugin, decode, NAME } = require("../src/plugin");
 const ref = (id, name = `Example ${id}`) => ({id, name});
 function fixture(options = {}) {
   const makeAlbum = (id, libraryId, artistId, values) => ({id, name:`Example ${id}`, libraryId,
@@ -90,7 +90,7 @@ function fixture(options = {}) {
     } else throw Error(`Unexpected host function ${name}`);
     return h.after ? h.after(name,request,result) ?? result : result;
   };
-  h.events = event => h.logs.map(([,line])=>JSON.parse(line.slice("Automatic Ratings: ".length)))
+  h.events = event => h.logs.map(([,line])=>JSON.parse(line.slice((NAME+": ").length)))
     .filter(e=>!event||e.event===event);
   h.state = () => decode(h.storage.get("automatic-ratings:v1:scan"));
   h.make = (config={}, extra={}) => createPlugin({host:h.host,readConfig:key=>config[key]??h.configDefaults[key],now:()=>h.clock,

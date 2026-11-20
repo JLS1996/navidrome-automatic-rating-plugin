@@ -1,4 +1,4 @@
-# Automatic Ratings for Navidrome
+# navidrome-automatic-rating-plugin
 
 **Rate your songs. Let your album and artist ratings follow.**
 
@@ -10,7 +10,7 @@
 
 Automatically calculate **album and artist ratings from each user's song ratings** in [Navidrome](https://www.navidrome.org/). Artist ratings come directly from songs, independently of album ratings. Song ratings and music files stay unchanged.
 
-**[Download the plugin](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/automatic-ratings.ndp)** · [Configuration guide](docs/CONFIGURATION.md) · [Release notes](RELEASE_NOTES.md)
+**[Download the plugin](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/navidrome-automatic-rating-plugin.ndp)** · [Configuration guide](docs/CONFIGURATION.md) · [Release notes](RELEASE_NOTES.md)
 
 > [!IMPORTANT]
 > **AI-assisted development**
@@ -19,7 +19,7 @@ Automatically calculate **album and artist ratings from each user's song ratings
 
 ![General settings: preview mode and requesting a scan](docs/images/general.png)
 
-*Actual Navidrome settings, captured with v0.4.1 in a fictional demo library.*
+*Actual Navidrome settings, captured in a fictional demo library.*
 
 ## Features
 
@@ -42,12 +42,12 @@ Automatically calculate **album and artist ratings from each user's song ratings
 
 Requires **Navidrome 0.64.2 or newer** with native plugins enabled. No Node.js, Python, or source build is needed on your server.
 
-1. Download **[automatic-ratings.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/automatic-ratings.ndp)**. A [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/automatic-ratings.ndp.sha256) is available; see [verification instructions](docs/OPERATIONS.md#verify-a-download).
+1. Download **[navidrome-automatic-rating-plugin.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/navidrome-automatic-rating-plugin.ndp)**. A [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/navidrome-automatic-rating-plugin.ndp.sha256) is available; see [verification instructions](docs/OPERATIONS.md#verify-a-download).
 2. Copy it into your Navidrome plugins directory and rescan plugins, or restart Navidrome so it appears.
-3. Open **Automatic Ratings**, grant access to the intended **users and libraries**, and enable it.
+3. Open **navidrome-automatic-rating-plugin**, grant access to the intended **users and libraries**, and enable it.
 4. Choose your settings and save. Settings apply without restarting Navidrome.
 
-For upgrades, keep the filename and plugin storage so generated ratings stay recognized. See [upgrade instructions](docs/OPERATIONS.md#ownership-and-upgrades).
+**Upgrading an existing installation?** Verify the download, then save it under your existing installed filename (usually `automatic-ratings.ndp`). Keep plugin storage and replace the old package; do not install a second copy. See [upgrade instructions](docs/OPERATIONS.md#ownership-and-upgrades).
 
 ## Configuration
 
