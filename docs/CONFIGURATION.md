@@ -117,9 +117,9 @@ For a first run after another ratings plugin, see [migration and ownership](OPER
 | Setting | Default | What you can change |
 |---|---|---|
 | `run_time_utc` | `03:00` | Daily start time as `HH:MM` in **UTC**. Convert from your local time when setting it. |
-| `run_now` | `false` | Set true to request one run on the next worker tick, normally within 10 seconds. |
+| `run_now` | `false` | Flip either way and save to request one scan on the next worker tick, normally within 10 seconds. |
 
-For the one-shot request latch and restart steps, see [manual runs](OPERATIONS.md#schedule-and-manual-runs).
+For switch behavior and repeated requests, see [manual runs](OPERATIONS.md#schedule-and-manual-runs).
 
 ## Performance controls
 

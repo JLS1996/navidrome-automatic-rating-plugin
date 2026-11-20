@@ -207,13 +207,42 @@ test("an active library scan prevents source processing and rating writes",()=>{
   assert.throws(()=>p.onSchedule({payload:"worker"}),/scanner/);assert.deepEqual(h.writes,[]);
   assert.equal(h.schedules.has("automatic-ratings-worker"),true);
 });
-test("manual requests are latched across fresh callback instances and actual scheduler restart",()=>{
+test("each manual switch change runs once across fresh callbacks and scheduler restarts",()=>{
   const h=fixture(),config={run_now:true};let p=h.make(config);p.initialize();p.onSchedule({payload:"worker"});
   assert.equal(h.events("run_summary").length,1);p=h.make(config);
   assert.equal(p.onSchedule({payload:"worker"}).waiting,true);
   h.schedules.clear();p=h.make(config);p.initialize();assert.equal(p.onSchedule({payload:"worker"}).waiting,true);
-  config.run_now=false;p.onSchedule({payload:"worker"});config.run_now=true;p.onSchedule({payload:"worker"});
-  assert.equal(h.events("run_summary").length,2);assert.deepEqual(h.writes,[]);
+  config.run_now=false;p.onSchedule({payload:"worker"});
+  assert.equal(h.events("run_summary").length,2);
+  assert.equal(h.make(config).onSchedule({payload:"worker"}).waiting,true);
+  config.run_now=true;p.onSchedule({payload:"worker"});
+  assert.equal(h.events("run_summary").length,3);assert.deepEqual(h.writes,[]);
+});
+test("default off does not request a scan and an active run consumes either switch position",()=>{
+  const h=fixture(),config={run_now:false,batch_size:1};const p=h.make(config);p.initialize();
+  assert.equal(p.onSchedule({payload:"worker"}).waiting,true);
+  h.before=(name,request)=>{if(name==="subsonicapi_call"&&request.uri.startsWith("getAlbum?"))h.clock+=2500;};
+  config.run_now=true;assert.equal(p.onSchedule({payload:"worker"}).active,true);
+  config.run_now=false;p.onSchedule({payload:"worker"});
+  assert.equal(h.events("run_started").length,1);
+  assert.equal(h.events("manual_request").at(-1).alreadyRunning,true);
+  while(p.onSchedule({payload:"worker"}).active){}
+  assert.equal(p.onSchedule({payload:"worker"}).waiting,true);
+});
+test("settings reload captures rapid switch changes before any worker tick",()=>{
+  const h=fixture(),config={run_now:true};h.make(config).initialize();
+  assert.equal(h.events("manual_request").length,1);
+  h.schedules.clear();config.run_now=false;h.make(config).initialize();
+  assert.equal(h.events("manual_request").length,2);
+  assert.equal(h.events("manual_request")[1].alreadyRunning,true);
+  h.make(config).onSchedule({payload:"worker"});
+  assert.equal(h.events("run_summary").length,1);
+  assert.equal(h.make(config).onSchedule({payload:"worker"}).waiting,true);
+});
+test("corrupt manual-request state is not interpreted as a new request",()=>{
+  const h=fixture();h.storage.set("automatic-ratings:v1:manual",encode("invalid"));
+  assert.throws(()=>h.make({run_now:true}).initialize(),/Invalid manual request state/);
+  assert.equal(h.events("run_started").length,0);assert.deepEqual(h.writes,[]);
 });
 test("daily requests queue work, coalesce with active scans, and cannot cross safety changes",()=>{
   const h=fixture(),config={batch_size:1};const p=h.make(config);p.initialize();

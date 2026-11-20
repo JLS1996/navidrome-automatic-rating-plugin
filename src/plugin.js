@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "0.3.1";
+const VERSION = "0.4.0";
 const AUDIT_SOURCE_FORMAT = "structured_song_ratings_v1";
 const PREFIX = "automatic-ratings:v1:";
 const STATE_KEY = PREFIX + "scan";
@@ -1003,14 +1003,24 @@ function createPlugin({ host, readConfig, log = () => {}, now = () => Date.now()
     scheduleDaily(settings); recurringWorker(settings);
     event("info", "enabled", { version: VERSION, runTimeUTC: settings.run_time_utc,
       dryRun: settings.dry_run, attribution: settings.artist_attribution, ...auditStatus(settings), callbackBudgetMs: BUDGET_MS });
-    if (!assignedUsers().length || !grantedLibraries().length) event("warn", "missing_grants", { action: "grant_users_and_libraries_then_restart" });
+    if (!assignedUsers().length || !grantedLibraries().length) event("warn", "missing_grants", { action: "grant_users_and_libraries_then_save" });
+    // A settings save reloads the plugin. Capture the switch immediately so two
+    // saves before the next worker tick cannot hide a round-trip change.
+    manualTrigger(settings);
   }
-  function triggers(settings) {
-    const wasRequested = get(MANUAL_KEY) === true;
+  function manualTrigger(settings) {
+    const saved = get(MANUAL_KEY);
+    if (saved !== null && typeof saved !== "boolean") throw Error("Invalid manual request state");
+    const wasRequested = saved === true;
     if (wasRequested !== settings.run_now) {
-      if (settings.run_now) event("info", "manual_request", { ...startRun(), action: "consume_once" });
+      // Both switch positions request work. Retain the consumed position across
+      // reloads so saving unrelated settings or restarting cannot replay it.
+      event("info", "manual_request", { ...startRun(), action: "consume_once", switchValue: settings.run_now });
       put(MANUAL_KEY, settings.run_now);
     }
+  }
+  function triggers(settings) {
+    manualTrigger(settings);
     const request = get(DAILY_KEY), handled = get(HANDLED_KEY);
     if (request && JSON.stringify(request) !== JSON.stringify(handled)) {
       if (!Number.isSafeInteger(request.at) || request.at < 0 || typeof request.signature !== "string") throw Error("Invalid daily request");

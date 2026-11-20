@@ -136,7 +136,21 @@ def exercise(binary, package):
     settings = {**defaults, "batch_interval_seconds": 5, "detail_logging": "info", "run_now": False,
         "run_time_utc": (datetime.now(timezone.utc) + timedelta(hours=12)).strftime("%H:%M")}
 
-    def configure(start_server=True):
+    def configure(start_server=True, permissions=None):
+        if start_server and server is not None:
+            previous = len(events())
+            request = urllib.request.Request(f"http://127.0.0.1:{port}/auth/login",
+                data=json.dumps({"username": "fixture-admin", "password": password}).encode(),
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(request, timeout=10) as response:
+                token = json.load(response)["token"]
+            request = urllib.request.Request(f"http://127.0.0.1:{port}/api/plugin/automatic-ratings",
+                method="PUT", data=json.dumps({"config": json.dumps(settings), **(permissions or {})}).encode(),
+                headers={"Content-Type": "application/json", "x-nd-authorization": "Bearer " + token})
+            with urllib.request.urlopen(request, timeout=30) as response:
+                check(json.load(response)["enabled"], "Settings save disabled the plugin")
+            wait_for(lambda: any(e["event"] == "enabled" for e in events()[previous:]), "live plugin reload", timeout=15)
+            return
         stop()
         file = root / "plugin-config.json"
         file.write_text(json.dumps(settings))
@@ -149,18 +163,12 @@ def exercise(binary, package):
         before = song_ratings()
         before_annotations = annotation_rows()
         settings.update(changes)
-        settings["run_now"] = False
-        configure()
-        # Observe the actual persisted latch; no fixed sleep or synthetic callback.
-        def rearmed():
-            with sqlite3.connect(f"file:{data}/plugins/automatic-ratings/kvstore.db?mode=ro", uri=True) as db:
-                row = db.execute("SELECT value FROM kvstore WHERE key=?", ("automatic-ratings:v1:manual",)).fetchone()
-            return row is None or json.loads(row[0]) is False
-        wait_for(rearmed, "manual-request rearming")
         previous = len([e for e in events() if e["event"] == "run_summary"])
-        settings["run_now"] = True
+        settings["run_now"] = not settings["run_now"]
+        process_id = server.pid
         configure()
         summary = wait_for(lambda: [e for e in events() if e["event"] == "run_summary"][previous:], "plugin run")[0]
+        check(server.pid == process_id, "Manual scan restarted Navidrome")
         check(summary["sourceErrors"] == summary["albums"]["failed"] == summary["artists"]["failed"] == 0, str(summary))
         check(song_ratings() == before, "Plugin changed song ratings")
         after_annotations = annotation_rows()
@@ -245,6 +253,22 @@ def exercise(binary, package):
         check(result["albums"]["updated"] == result["artists"]["updated"] == 0, "Repeated run should converge")
         check(result["albums"]["adopted"] == result["artists"]["adopted"] == 0, "Owned values must not be adopted again")
         check(result["albums"]["unchanged"] == 3 and result["artists"]["unchanged"] == 2, "Expected all migrated ratings to match")
+        # Re-saving the same switch and restarting the process must not replay it.
+        completed = len([e for e in events() if e["event"] == "run_summary"])
+        configure()
+        time.sleep(11)
+        check(len([e for e in events() if e["event"] == "run_summary"]) == completed, "Unchanged save replayed a scan")
+        with sqlite3.connect(f"file:{data}/navidrome.db?mode=ro", uri=True) as db:
+            user_ids = [row[0] for row in db.execute("SELECT id FROM user")]
+        configure(permissions={"users": json.dumps(user_ids), "allUsers": False,
+            "libraries": "[1]", "allLibraries": False})
+        configure(permissions={"allUsers": True, "libraries": "[1]", "allLibraries": False})
+        run()
+        completed = len([e for e in events() if e["event"] == "run_summary"])
+        stop()
+        start()
+        time.sleep(11)
+        check(len([e for e in events() if e["event"] == "run_summary"]) == completed, "Restart replayed a consumed request")
         with sqlite3.connect(f"file:{data}/plugins/automatic-ratings/kvstore.db?mode=ro", uri=True) as db:
             owner = json.loads(db.execute("SELECT value FROM kvstore WHERE key=?", (key,)).fetchone()[0])
         check(owner["pending"] is None and owner["rating"] == 1, "Pending intent was not recovered")
@@ -296,7 +320,7 @@ def exercise(binary, package):
             rating("album", bright["id"]) == rating("album", dim["id"]) == rating("artist", catalogue) == 0,
             "Zero-weight settings must still clear genuinely unrated eligible outputs")
         check(all(hashlib.sha256(path.read_bytes()).digest() == digest for path, digest in file_hashes.items()), "Music files changed")
-        print("Real Navidrome integration passed: audit dry run, custom-quota migration, writes, adoption, pending-intent recovery, zero-write/timestamp convergence, manual overrides, replace, clears, performing attribution, zero-weight exclusions, song/file isolation.", flush=True)
+        print("Real Navidrome integration passed: live settings/permission reloads, both scan-switch directions without server restarts, no replay on unchanged saves/restarts, audit dry run, custom-quota migration, writes, adoption, pending-intent recovery, zero-write/timestamp convergence, manual overrides, replace, clears, performing attribution, zero-weight exclusions, song/file isolation.", flush=True)
     except BaseException:
         print(f"Fictional integration fixture retained at {root}", flush=True)
         raise

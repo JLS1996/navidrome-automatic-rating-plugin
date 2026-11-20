@@ -17,7 +17,7 @@ async function invoke(h,config,fn,input="") {
   try{return await plugin.call(fn,input);}finally{await plugin.close();}
 }
 async function worker(h,c){await invoke(h,c,"nd_scheduler_callback",JSON.stringify({payload:"worker"}));}
-async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";await worker(h,c);}
+async function again(h,c){c.run_now=c.run_now==="true"?"false":"true";await worker(h,c);}
 (async()=>{
   const h=fixture(),config={run_now:"true",batch_size:"1"};
   await invoke(h,config,"nd_on_init");
@@ -45,12 +45,15 @@ async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";a
   // Every invocation uses a fresh WASM instance, as Navidrome does.
   await worker(h,config);assert.equal(h.events("run_summary").length,1);
   config.dry_run="false";await again(h,config);
+  assert.deepEqual(h.events("manual_request").map(e=>e.switchValue),[true,false]);
+  assert.equal(h.events("run_summary").length,2);
   assert.equal(h.getRating("example-reader","album","album-a"),5);
   assert.equal(h.getRating("example-reader","artist","album-artist"),3);
   assert.equal(h.writes.length,3);
   h.setRating("example-reader","album","album-a",2);
   for(const song of h.albums[1].songs)song.userRating=5;
   await again(h,config);
+  assert.deepEqual(h.events("manual_request").map(e=>e.switchValue),[true,false,true]);
   assert.equal(h.getRating("example-reader","album","album-a"),2);
   assert.equal(h.getRating("example-reader","album","album-b"),5);
   assert.equal(h.getRating("example-reader","artist","album-artist"),5);
@@ -123,5 +126,5 @@ async function again(h,c){c.run_now="false";await worker(h,c);c.run_now="true";a
     assert.deepEqual(report.artistExplanations[0].contributions[0].songs,
       [{id:"album-a-song-0",rating:5,artistIds:["album-artist","collaborator"]}]);
   }finally{fs.rmSync(temp,{recursive:true,force:true});}
-  console.log("Compiled WASM smoke passed: independent outputs, exact fractional ties, zero-weight exclusions, dry-run isolation, ownership, clears, final write guards, performing credits, safe unrated-user skips, native host imports, scheduler rearming, audit status, and independent artist explanations.");
+  console.log("Compiled WASM smoke passed: both manual-switch directions, independent outputs, exact fractional ties, zero-weight exclusions, dry-run isolation, ownership, clears, final write guards, performing credits, safe unrated-user skips, native host imports, scheduler rearming, audit status, and independent artist explanations.");
 })().catch(error=>{console.error(error);process.exitCode=1;});

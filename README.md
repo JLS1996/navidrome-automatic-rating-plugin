@@ -36,7 +36,7 @@ Requires **Navidrome 0.64.2 or newer** with native plugins enabled. No source bu
 1. Download **[automatic-ratings.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/automatic-ratings.ndp)** from the [latest release](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest). A [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/automatic-ratings.ndp.sha256) is available; see [verification instructions](docs/OPERATIONS.md#verify-a-download).
 2. Copy the file into your Navidrome plugins directory and rescan plugins, or restart Navidrome so it appears.
 3. Open **Automatic Ratings** in Navidrome, grant access to the intended **users and libraries**, and enable it.
-4. Choose your settings and save. **On Navidrome 0.64.2, restart after settings or permission changes** so the plugin's callbacks resume.
+4. Choose your settings and save. Settings apply without restarting Navidrome.
 
 For upgrades, keep the filename and plugin storage so the plugin continues to recognize ratings it manages. See the [operations guide](docs/OPERATIONS.md#ownership-and-upgrades).
 
@@ -59,7 +59,7 @@ See the [configuration guide](docs/CONFIGURATION.md) for every setting, coverage
 
 ## Running the plugin
 
-Runs start daily at the configured time. To start one manually, turn on **Request one run** (`run_now`), save, and restart where required. Leaving it on does not repeat the request; follow the [manual-run instructions](docs/OPERATIONS.md#schedule-and-manual-runs) to run again.
+Runs start daily at the configured time. For a scan now, flip **Toggle to request a scan** (`run_now`) in either direction and save. Each change requests one scan; no reset or Navidrome restart is needed. If a scan is already running, the request joins it.
 
 ## Documentation
 

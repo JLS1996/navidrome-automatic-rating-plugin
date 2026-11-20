@@ -18,9 +18,11 @@ The result should be `automatic-ratings.ndp: OK`.
 
 Grant the intended **users and libraries** in Navidrome's plugin page. Each user's inputs are limited to libraries allowed by both the plugin grant and their own access. Empty grants do not mean unrestricted access.
 
-On **Navidrome 0.64.2**, restart the server/container after settings or grant edits. These edits can unload the plugin without restarting its callbacks. Confirm an `enabled` log event; disabling and re-enabling the plugin may not restore them.
+Save settings or permission changes in Navidrome. The enabled plugin reloads and recreates its schedules automatically; a server restart is not required. This is verified against the official Navidrome 0.64.2 binary using the same API as the settings UI. The earlier blanket restart instruction was incorrect.
 
-Changing calculation settings or `dry_run` cancels an active run. Save the new settings, apply them with a restart where required, then [request another run](#schedule-and-manual-runs). Changing `dry_run` alone does not rearm `run_now`.
+If a save appears ineffective, check for an `enabled` event or a plugin initialization error in the logs and confirm the plugin is enabled with valid grants.
+
+Changing calculation settings or `dry_run` cancels an active run. Save the new settings and [request another run](#schedule-and-manual-runs). Changing `dry_run` alone does not request a run. You can change settings and flip the scan switch in the same save.
 
 ## Validation status
 
@@ -42,11 +44,9 @@ Ownership is best-effort: edits to exactly the generated value, or edits away an
 
 Use `run_now` for a one-off request without changing the daily schedule. Set the daily start time with `run_time_utc` in **UTC**; see the [schedule settings](CONFIGURATION.md#schedule).
 
-Leaving `run_now=true` does **not** repeat the request, including after restart. To request another run:
+Flip **Toggle to request a scan** (`run_now`) in either direction and save. Both off → on and on → off request one scan. There is no reset step or server restart. The scan starts on the next worker tick, normally within 10 seconds.
 
-1. Save `run_now=false`; restart Navidrome if required to apply the edit.
-2. Let at least one worker tick observe false—10 seconds with the default interval.
-3. Save `run_now=true` and restart again where required.
+The saved position is remembered: saving it unchanged or restarting Navidrome does not repeat a consumed request. On a fresh installation, the default off position requests nothing; an initial on position requests one scan. Upgrades retain the previous consumed position. In v0.4.0, switching an old on position off now requests a scan too.
 
 Requests during an active run join that run rather than starting another. Saved progress normally resumes after restart; changes to calculation/safety settings or user/library access cancel the partial run. Request a fresh run after such changes. A daily event missed while the server is offline is not automatically made up.
 
@@ -62,11 +62,11 @@ When [zero weights](CONFIGURATION.md#exclude-a-star-level) are configured, item 
 
 ### Check a repeat run
 
-After a successful live run, request another with the same song/target ratings, catalogue, settings, and plugin storage. Expect `updated=0`, `adopted=0`, and all-zero `ratingCounts`; database ratings and `rated_at` timestamps should stay unchanged. Matching owned items count as `unchanged`; preserved and below-quota outcomes can remain. Rearm `run_now` as described [above](#schedule-and-manual-runs).
+After a successful live run, request another with the same song/target ratings, catalogue, settings, and plugin storage. Expect `updated=0`, `adopted=0`, and all-zero `ratingCounts`; database ratings and `rated_at` timestamps should stay unchanged. Matching owned items count as `unchanged`; preserved and below-quota outcomes can remain. Flip `run_now` as described [above](#schedule-and-manual-runs).
 
 ### Independently verify a calculation
 
-Set **`audit_logging=true`**, apply settings/restart, and request a fresh dry run. **`detail_logging=info` alone does not enable audits.** Startup and summaries show `auditLogging`. Audit mode bypasses the unrated-user precheck (`preflightSongs:0`) and fully scans every user. It logs settings, song ratings/structured credits, and outcomes at info level; runtime and log volume can grow substantially with users and songs. Keep it off for daily use.
+Set **`audit_logging=true`**, save settings, and request a fresh dry run. **`detail_logging=info` alone does not enable audits.** Startup and summaries show `auditLogging`. Audit mode bypasses the unrated-user precheck (`preflightSongs:0`) and fully scans every user. It logs settings, song ratings/structured credits, and outcomes at info level; runtime and log volume can grow substantially with users and songs. Keep it off for daily use.
 
 Capture **one complete, uninterrupted run**, from `run_started` through `run_summary`, then run the verifier from the repository root:
 
@@ -78,4 +78,4 @@ python3 scripts/verify-audit.py /path/to/local-audit.log --explain-artist ARTIST
 
 The standard-library verifier checks the whole run using exact fractions, including zero-weight exclusions. Missing evidence or a mismatch fails with a nonzero exit code. Artist explanations list per-album song IDs, credits, raw histograms, filtered coverage counts, quotas, and scores; omit `--user` to explain all matching users. Excluded songs remain visible in the evidence. Checks use captured read-time data, not later database contents or ownership provenance.
 
-Audit logs contain private user identifiers, song IDs, and credit relationships. Keep them local and turn audit logging off afterward, restarting Navidrome where required.
+Audit logs contain private user identifiers, song IDs, and credit relationships. Keep them local and turn audit logging off afterward.
