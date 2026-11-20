@@ -1,9 +1,6 @@
 # Automatic Ratings for Navidrome
 
-> [!IMPORTANT]
-> **AI-assisted development**
->
-> This plugin was developed with AI assistance. It is working well in the maintainer's current Navidrome setup.
+**Rate your songs. Let your album and artist ratings follow.**
 
 [![Latest release](https://img.shields.io/github/v/release/JLS1996/navidrome-automatic-rating-plugin)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest)
 [![Build](https://github.com/JLS1996/navidrome-automatic-rating-plugin/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/actions/workflows/build.yml)
@@ -11,74 +8,88 @@
 
 Automatically calculate **album and artist ratings from each user's song ratings** in [Navidrome](https://www.navidrome.org/). Artist ratings come directly from songs, independently of album ratings. Song ratings and music files stay unchanged.
 
+**[Download the plugin](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/automatic-ratings.ndp)** · [Configuration guide](docs/CONFIGURATION.md) · [Release notes](RELEASE_NOTES.md)
+
+> [!IMPORTANT]
+> **AI-assisted development**
+>
+> This plugin was developed with AI assistance. It is working well in the maintainer's current Navidrome setup.
+
+![Start here: preview mode, album and artist outputs, and artist attribution](docs/images/start-here.png)
+
+*Actual Navidrome settings, captured with v0.4.0 in a fictional demo library.*
+
 ## Features
 
 - **Independent outputs:** generate album ratings, artist ratings, or both.
-- **Artist credits:** use album artists or the performers credited on each song, including guests.
-- **Custom weights:** give different star ratings more influence, or exclude a star level entirely.
-- **Coverage requirements:** choose how many songs must be rated before an album or artist qualifies.
-- **Rating policies:** protect manual ratings or replace existing ratings when migrating from another plugin.
-- **Scheduled runs:** update daily at your chosen UTC time, or request a run from the settings.
+- **Artist credits:** use album artists or each song's performing artists, including guests.
+- **Your calculation:** customize star weights, exclude star levels, and require enough rated songs.
+- **Manual rating protection:** preserve existing ratings and detected manual edits, or replace them when migrating.
+- **Automatic or on demand:** run daily at your chosen UTC time, or flip the scan switch and save.
 
 ## Before you start
 
 > [!CAUTION]
 > **This plugin can change or clear album and artist ratings.**
 >
-> Back up your Navidrome database and plugin storage before applying changes. Preview mode is on by default (`dry_run=true`): review `user_summary` and `run_summary` in the Navidrome logs, then turn it off when ready to apply ratings and request another run.
+> Back up your Navidrome database and plugin storage. Preview mode is on by default (`dry_run=true`): review `user_summary` and `run_summary` in the logs before turning it off and requesting another scan.
 >
-> The `replace` policy can overwrite manual ratings and ratings from other plugins; disable older rating plugins before enabling writes.
+> The `replace` policy can overwrite manual ratings and ratings from other plugins. Disable older rating plugins before enabling writes.
 
 ## Installation
 
-Requires **Navidrome 0.64.2 or newer** with native plugins enabled. No source build, Node.js, or Python installation is needed on the server.
+Requires **Navidrome 0.64.2 or newer** with native plugins enabled. No Node.js, Python, or source build is needed on your server.
 
-1. Download **[automatic-ratings.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/automatic-ratings.ndp)** from the [latest release](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest). A [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/automatic-ratings.ndp.sha256) is available; see [verification instructions](docs/OPERATIONS.md#verify-a-download).
-2. Copy the file into your Navidrome plugins directory and rescan plugins, or restart Navidrome so it appears.
-3. Open **Automatic Ratings** in Navidrome, grant access to the intended **users and libraries**, and enable it.
+1. Download **[automatic-ratings.ndp](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/automatic-ratings.ndp)**. A [SHA-256 checksum](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest/download/automatic-ratings.ndp.sha256) is available; see [verification instructions](docs/OPERATIONS.md#verify-a-download).
+2. Copy it into your Navidrome plugins directory and rescan plugins, or restart Navidrome so it appears.
+3. Open **Automatic Ratings**, grant access to the intended **users and libraries**, and enable it.
 4. Choose your settings and save. Settings apply without restarting Navidrome.
 
-For upgrades, keep the filename and plugin storage so the plugin continues to recognize ratings it manages. See the [operations guide](docs/OPERATIONS.md#ownership-and-upgrades).
+For upgrades, keep the filename and plugin storage so generated ratings stay recognized. See [upgrade instructions](docs/OPERATIONS.md#ownership-and-upgrades).
 
 ## Configuration
 
-The plugin works separately for each granted user, using only libraries that both the user and plugin can access.
+Each granted user gets separate results, using only libraries that both the user and plugin can access.
 
 | Setting | Default |
 |---|---|
 | Outputs | Albums and artists |
 | Artist credits | Album artists |
 | Required coverage | At least 30% of eligible songs and at least 1 rated song |
-| Song weights, from 1★ to 5★ | `1, 2, 3, 4, 5` — higher ratings have more influence |
-| Existing ratings | Preserve existing ratings and manual edits; refresh this plugin's output |
+| Weights, from 1★ to 5★ | `1, 2, 3, 4, 5` — higher ratings have more influence |
+| Existing ratings | Preserve manual ratings; refresh this plugin's output |
 | Daily start time | **03:00 UTC** |
 
-Set all five weights to `1` for a simple average, or use `0` to exclude a star level from scoring and coverage. For example, one 5-star song and four 1-star songs produce **3 stars** with default weights, or **2 stars** with equal weights.
+Set all five weights to `1` for a simple average, or use `0` to exclude a star level from scoring and coverage. One 5-star song and four 1-star songs produce **3 stars** with default weights, or **2 stars** with equal weights.
 
-See the [configuration guide](docs/CONFIGURATION.md) for every setting, coverage examples, and clearing rules.
+<details>
+<summary>See album rating settings</summary>
+
+![Album settings: preservation policy and coverage requirements](docs/images/album-ratings.png)
+
+Album and artist calculations have separate settings. See the [configuration guide](docs/CONFIGURATION.md) for examples and clearing rules.
+
+</details>
 
 ## Running the plugin
 
-Runs start daily at the configured time. For a scan now, flip **Toggle to request a scan** (`run_now`) in either direction and save. Each change requests one scan; no reset or Navidrome restart is needed. If a scan is already running, the request joins it.
+Runs start daily at the configured time. For a scan now, flip **Toggle to request a scan** (`run_now`) in either direction and save. **No reset or Navidrome restart is needed.** If a scan is already running, the request joins it.
 
-## Documentation
+<details>
+<summary>See the scan switch and schedule settings</summary>
 
-| Guide | What you'll find |
-|---|---|
-| [Configuration](docs/CONFIGURATION.md) | Outputs, artist credits, coverage, weights, and rating policies |
-| [Operations](docs/OPERATIONS.md) | Download verification, upgrades, migration, manual runs, and logs |
-| [Technical reference](docs/REFERENCE.md) | Calculations, recovery, storage, building, and tests |
-| [Release notes](RELEASE_NOTES.md) | Changes in the current release |
-| [Audit and roadmap ideas](docs/AUDIT.md) | Audit findings, validation, known limitations, and proposed features |
+![Daily schedule and the scan request switch](docs/images/scan-and-schedule.png)
 
-## Support and development
+</details>
 
-[Report a bug or suggest a feature](https://github.com/JLS1996/navidrome-automatic-rating-plugin/issues). For bugs, include your Navidrome version, plugin version, relevant settings, and a log excerpt with private details removed.
+## Help and development
 
-To build or contribute, start with the [development instructions](docs/REFERENCE.md#build-and-benchmark).
+[Operations and troubleshooting](docs/OPERATIONS.md) · [Technical reference](docs/REFERENCE.md) · [Audit and roadmap](docs/AUDIT.md)
+
+[Report a bug or suggest a feature](https://github.com/JLS1996/navidrome-automatic-rating-plugin/issues). Include your Navidrome and plugin versions, relevant settings, and a log excerpt with private details removed.
+
+To contribute, start with the [development instructions](docs/REFERENCE.md#build-and-benchmark).
 
 ## Credits and license
 
-Inspired by [mattnic/navidrome-album-ratings](https://github.com/mattnic/navidrome-album-ratings).
-
-Released under the [MIT License](LICENSE).
+Inspired by [mattnic/navidrome-album-ratings](https://github.com/mattnic/navidrome-album-ratings). Released under the [MIT License](LICENSE).
