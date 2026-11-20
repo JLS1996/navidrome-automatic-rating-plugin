@@ -2,9 +2,11 @@
 
 **Rate your songs. Let your album and artist ratings follow.**
 
-[![Latest release](https://img.shields.io/github/v/release/JLS1996/navidrome-automatic-rating-plugin)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest)
-[![Build](https://github.com/JLS1996/navidrome-automatic-rating-plugin/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/actions/workflows/build.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/JLS1996/navidrome-automatic-rating-plugin/build.yml?branch=main&style=plastic&logo=github&label=CI)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=plastic)](LICENSE)
+[![Version](https://img.shields.io/github/v/release/JLS1996/navidrome-automatic-rating-plugin?style=plastic&label=version&color=green)](https://github.com/JLS1996/navidrome-automatic-rating-plugin/releases/latest)
+
+[![Tested with Navidrome 0.64.2](https://img.shields.io/badge/tested%20with-Navidrome%200.64.2-orange?style=plastic)](https://github.com/navidrome/navidrome/releases/tag/v0.64.2)
 
 Automatically calculate **album and artist ratings from each user's song ratings** in [Navidrome](https://www.navidrome.org/). Artist ratings come directly from songs, independently of album ratings. Song ratings and music files stay unchanged.
 
