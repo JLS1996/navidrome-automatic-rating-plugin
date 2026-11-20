@@ -15,7 +15,7 @@ Automatically calculate **album and artist ratings from each user's song ratings
 > [!IMPORTANT]
 > **AI-assisted development**
 >
-> This plugin was developed with AI assistance. It is working well in the maintainer's current Navidrome setup.
+> This plugin was developed with AI assistance.
 
 ![General settings: preview mode and requesting a scan](docs/images/general.png)
 
