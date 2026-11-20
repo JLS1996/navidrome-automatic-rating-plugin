@@ -17,9 +17,9 @@ Automatically calculate **album and artist ratings from each user's song ratings
 >
 > This plugin was developed with AI assistance. It is working well in the maintainer's current Navidrome setup.
 
-![Start here: preview mode, album and artist outputs, and artist attribution](docs/images/start-here.png)
+![General settings: preview mode and requesting a scan](docs/images/general.png)
 
-*Actual Navidrome settings, captured with v0.4.0 in a fictional demo library.*
+*Actual Navidrome settings, captured with v0.4.1 in a fictional demo library.*
 
 ## Features
 
@@ -53,6 +53,8 @@ For upgrades, keep the filename and plugin storage so generated ratings stay rec
 
 Each granted user gets separate results, using only libraries that both the user and plugin can access.
 
+**General** contains preview, scan requests, the daily schedule, and artist credits. **Albums** and **Artists** each start with their output switch. **Extra** contains performance and logging.
+
 | Setting | Default |
 |---|---|
 | Outputs | Albums and artists |
@@ -65,9 +67,9 @@ Each granted user gets separate results, using only libraries that both the user
 Set all five weights to `1` for a simple average, or use `0` to exclude a star level from scoring and coverage. One 5-star song and four 1-star songs produce **3 stars** with default weights, or **2 stars** with equal weights.
 
 <details>
-<summary>See album rating settings</summary>
+<summary>See Albums settings</summary>
 
-![Album settings: preservation policy and coverage requirements](docs/images/album-ratings.png)
+![Albums settings: output switch and existing-rating policy](docs/images/album-ratings.png)
 
 Album and artist calculations have separate settings. See the [configuration guide](docs/CONFIGURATION.md) for examples and clearing rules.
 
@@ -78,7 +80,7 @@ Album and artist calculations have separate settings. See the [configuration gui
 Runs start daily at the configured time. For a scan now, flip **Toggle to request a scan** (`run_now`) in either direction and save. **No reset or Navidrome restart is needed.** If a scan is already running, the request joins it.
 
 <details>
-<summary>See the scan switch and schedule settings</summary>
+<summary>See the scan switch and schedule in General</summary>
 
 ![Daily schedule and the scan request switch](docs/images/scan-and-schedule.png)
 

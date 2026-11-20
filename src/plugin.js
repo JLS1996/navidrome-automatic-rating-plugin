@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "0.4.0";
+const VERSION = "0.4.1";
 const AUDIT_SOURCE_FORMAT = "structured_song_ratings_v1";
 const PREFIX = "automatic-ratings:v1:";
 const STATE_KEY = PREFIX + "scan";

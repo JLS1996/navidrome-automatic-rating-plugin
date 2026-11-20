@@ -4,7 +4,7 @@
 
 Change these settings in Navidrome's plugin UI. Follow the [operations guide](OPERATIONS.md#apply-settings-and-permissions) to apply changes. The [manifest](../manifest.json) contains the complete schema.
 
-The settings UI groups options under **Start here**, **Album ratings**, **Artist ratings**, and **Schedule and logs**. The tables below use the configuration keys; dropdowns in Navidrome show readable labels for the same values.
+The settings UI groups options under **General**, **Albums**, **Artists**, and **Extra**. General contains preview mode, the scan request switch, the daily UTC schedule, and artist credits. Each output switch is at the top of its own ratings tab. Help is displayed in separate text blocks so explanations have visible line breaks. General contains preview mode, the scan request switch, the daily UTC schedule, and artist credits. Each output switch is at the top of its own ratings tab. Help is displayed in separate text blocks so explanations have visible line breaks. General contains preview mode, the scan request switch, the daily UTC schedule, and artist credits. Each output switch is at the top of its own ratings tab. Help is displayed in separate text blocks so explanations have visible line breaks. The tables below use the configuration keys; dropdowns in Navidrome show readable labels for the same values.
 
 ## Choose what to rate
 
