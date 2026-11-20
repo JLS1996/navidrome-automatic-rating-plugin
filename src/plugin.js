@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 const NAME = "navidrome-automatic-rating-plugin";
 const AUDIT_SOURCE_FORMAT = "structured_song_ratings_v1";
 // Keep the durable namespace and host export names compatible with existing installs.

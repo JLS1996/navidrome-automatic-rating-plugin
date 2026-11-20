@@ -1,27 +1,24 @@
-# navidrome-automatic-rating-plugin v0.5.0
+# navidrome-automatic-rating-plugin v0.5.1
 
-The plugin now uses its repository name in Navidrome and in its logs. New downloads are named `navidrome-automatic-rating-plugin.ndp`.
-
-## Existing installations
-
-**Keep your installed filename and plugin storage.** Verify the new download's checksum first, then rename it to your existing installed filename (usually `automatic-ratings.ndp`) and replace that package. Restart Navidrome after replacing it.
-
-Do not install both filenames. Navidrome uses the filename as the plugin ID; changing it creates a separate installation with separate settings, grants, and rating-ownership records.
-
-The displayed name will become `navidrome-automatic-rating-plugin` even when you retain the original installed filename. Storage keys, settings, and ownership records remain compatible.
+More space between configuration elements, especially on mobile screens.
 
 ## Changes
 
-- Rename the plugin's manifest/display name and log prefix to `navidrome-automatic-rating-plugin`.
-- Rename the release package and checksum to `navidrome-automatic-rating-plugin.ndp` and `navidrome-automatic-rating-plugin.ndp.sha256`.
-- Update downloads, build/release workflows, and documentation to use the new name.
-- Keep the offline audit verifier compatible with both new logs and older `Automatic Ratings:` logs.
-- Validate fresh installation under the new filename and an in-place upgrade from v0.4.1 under the original filename.
+- Add consistent blank-line spacing between help paragraphs throughout General, Albums, Artists, and Extra.
+- Separate explanations from the following setting, including the minimum rated-song count and below-coverage clearing controls.
+- Keep each setting's help together with its control and retain the existing tab layout.
+- Refresh the README screenshots to show the improved spacing.
 
-Rating calculations, configuration defaults, permissions, and the General, Albums, Artists, and Extra settings layout are unchanged.
+Rating calculations, settings, defaults, permissions, and ownership records are unchanged.
+
+## Upgrade
+
+Verify the download's checksum, then replace your installed package and restart Navidrome. Keep its current filename and plugin storage. If your installed file is still `automatic-ratings.ndp`, rename the new download to that filename after verification; do not install a second copy.
+
+Requires Navidrome 0.64.2 or newer with native plugins enabled.
 
 ## Validation
 
-120 source tests, compiled-WASM smoke checks, package integrity/checksum verification, and isolated official Navidrome 0.64.2 tests using fictional users and music. Integration covers the new filename, legacy-filename upgrades, live settings saves, scan requests, rating ownership, pending recovery, manual overrides, clearing, and song/file isolation.
+120 source tests, compiled-WASM smoke checks, package integrity/checksum verification, and the release workflow's isolated Navidrome integration and legacy-upgrade checks.
 
-Requires Navidrome 0.64.2 or newer with native plugins enabled. No production library was used.
+The real Navidrome settings editor was checked at 390 px, 430 px, and 1360 px widths: all four tabs, visible spacing, horizontal overflow, saved setting values, and browser errors. The added gaps measure approximately 24 px with the tested host theme. All data used for validation is fictional.

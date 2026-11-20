@@ -1,7 +1,7 @@
 {
   "name": "navidrome-automatic-rating-plugin",
   "author": "navidrome-automatic-rating-plugin contributors",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Generate per-user album and artist ratings independently from user-rated songs.",
   "website": "https://github.com/JLS1996/navidrome-automatic-rating-plugin",
   "permissions": {
@@ -385,7 +385,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Off: apply eligible album and artist rating changes, including clears allowed by your policies."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -412,7 +420,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "A scan starts on the next worker tick, normally within 10 seconds. No reset or Navidrome restart is needed."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -439,6 +455,10 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Saving a new time updates the daily schedule. A daily run missed while the server is offline is not replayed."
                     }
                   ]
@@ -462,7 +482,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Performing artists: use each song’s performer credits, including guests. A song contributes once to each credited artist."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -495,7 +523,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Off: leave existing album ratings in place and stop updating this output."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -522,7 +558,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Replace: allow overwriting manual ratings and ratings from other plugins. Matching calculated values are adopted without rewriting them."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -549,7 +593,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Unrated songs count toward eligible songs. Rated songs with a zero weight are excluded from both scoring and coverage."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Control",
@@ -561,7 +613,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "A percentage of 0 still requires this minimum number of contributing ratings."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Control",
@@ -573,7 +633,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Off: retain the previous rating below coverage. Preserve mode still protects unmanaged ratings and detected manual edits."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -596,7 +664,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Use 1 for every tier for a simple average. The defaults 1, 2, 3, 4, 5 favor higher-rated songs."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Control",
@@ -621,6 +697,10 @@
                     {
                       "type": "Label",
                       "text": "A weight of 0 excludes those songs from both scoring and coverage. Keep at least one weight positive."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -653,7 +733,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Off: leave existing artist ratings in place and stop updating this output."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -680,7 +768,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Replace: allow overwriting manual ratings and ratings from other plugins. Matching calculated values are adopted without rewriting them."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -707,7 +803,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Unrated songs count toward eligible songs. Rated songs with a zero weight are excluded from both scoring and coverage."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Control",
@@ -719,7 +823,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "A percentage of 0 still requires this minimum number of contributing ratings."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Control",
@@ -731,7 +843,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Off: retain the previous rating below coverage. Preserve mode still protects unmanaged ratings and detected manual edits."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -754,7 +874,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Use 1 for every tier for a simple average. The defaults 1, 2, 3, 4, 5 favor higher-rated songs."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Control",
@@ -779,6 +907,10 @@
                     {
                       "type": "Label",
                       "text": "A weight of 0 excludes those songs from both scoring and coverage. Keep at least one weight positive."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -811,7 +943,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Batches share a 20-second worker-callback budget. Usually leave this at 25."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Control",
@@ -823,7 +963,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Batches within one callback do not pause. Usually leave this at 10 seconds."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Control",
@@ -835,7 +983,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Ownership history, possible clears, or uncertain source data force a full scan. This setting does not bypass required updates."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
@@ -862,11 +1018,23 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Info: show every item at info level. Off: hide routine item details."
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Run summaries and errors remain visible with every choice. Info can produce large logs."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Control",
@@ -878,7 +1046,15 @@
                     },
                     {
                       "type": "Label",
+                      "text": "\u00a0"
+                    },
+                    {
+                      "type": "Label",
                       "text": "Records song IDs, ratings, artist credits, and settings. Forces full scans and can greatly increase runtime and log volume."
+                    },
+                    {
+                      "type": "Label",
+                      "text": "\u00a0"
                     },
                     {
                       "type": "Label",
